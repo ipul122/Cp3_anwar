@@ -28,9 +28,6 @@ htmlcov/
 # Jupyter artifacts
 .ipynb_checkpoints/
 
-# Generated data artifacts
-data/*.db
-data/*.parquet
 
 # IDE and OS files
 .vscode/

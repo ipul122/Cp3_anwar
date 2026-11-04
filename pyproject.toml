@@ -6,8 +6,14 @@ authors = [
     {name = "ipul122",email = "ipulsayfulloh18@gmail.com"}
 ]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<4.0.0"
 dependencies = [
+    "streamlit (>=1.66.1,<2.0.0)",
+    "python-dotenv (>=1.2.4,<2.0.0)",
+    "openai (>=3.45.0,<4.0.0)",
+    "qdrant-client (>=1.20.0,<2.0.0)",
+    "pandas (>=3.1.0,<4.0.0)",
+    "langchain-openai (>=1.7.3,<2.0.0)"
 ]
 
 [tool.poetry]
