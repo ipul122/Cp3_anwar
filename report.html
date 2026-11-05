@@ -100,8 +100,9 @@ hasil ke supervisor, lalu supervisor memutuskan langkah berikutnya atau lanjut k
 <ol>
   <li><b>Streamlit</b> (<code>app.py &rarr; ask()</code>) memanggil <code>workflow.run(question, chat, ratings, trace)</code>
       sambil menampilkan spinner "Agent sedang memproses...".</li>
-  <li><b>Profil rating user</b> disisipkan ke konteks lewat <code>_rating_note()</code> (7 rating terbaru),
-      jadi supervisor &amp; answer tahu film apa saja yang baru dinilai.</li>
+  <li><b>Profil rating user</b> disisipkan ke konteks lewat <code>_rating_note()</code> &mdash; memuat
+      <b>seluruh</b> film yang pernah dirating (urut dari paling lama), jadi pertanyaan soal
+      selera/profil dijawab utuh, termasuk film animasi atau film lama yang sudah dirating.</li>
   <li><b>Guardrail</b> (<code>_guardrail_hit()</code>): pola jailbreak atau di luar topik film ditolak
       <i>sebelum</i> LLM dipanggil &mdash; 0 token terpakai (event <code>warn</code> + span <code>guardrail</code>).</li>
   <li><b>Graph LangGraph dijalankan</b> di dalam <code>propagate_attributes(session_id, tags)</code> supaya semua
@@ -207,8 +208,9 @@ final       | jawaban + 10 card film di panel kanan</pre>
      push = 0.5 x S(6 - rating) / (jumlah_dibenci x 5)     -&gt; rating 5 = 0.1, rating 1 = 0.5
      centroid = centroid - push x (titik_dibenci - centroid)</pre>
 <p>Jadi <b>semua</b> rating dipakai, tapi perannya beda: rating tinggi menarik, rating rendah menolak.
-Rating lama (&gt; 7 terakhir) otomatis tidak dipakai lagi, sehingga selera yang berubah cepat diikuti.
-Daftar "film yang dirating" di UI tetap menampilkan semua rating.</p>
+Rating lama (&gt; 7 terakhir) otomatis tidak dipakai lagi untuk titik selera, sehingga selera yang
+berubah cepat diikuti. Daftar "film yang dirating" di UI dan catatan rating ke agent tetap memuat
+<b>semua</b> rating, jadi pertanyaan seperti "saya ini orang yang seperti apa" dijawab dari seluruh riwayat.</p>
 
 <h3>4.4 <code>vectorstore.py</code> &mdash; jalur RAG</h3>
 <ol>
@@ -258,8 +260,11 @@ kalau <code>steps &gt;= MAX_STEPS (6)</code> juga dipaksa <code>answer</code>.</
         log_event(trace, "llm", name=name, tokens=..., cost=...)</pre>
 <p>Supaya konteks tidak boros token: <code>for_llm()</code> memotong overview 200 karakter,
 <code>_compact_result()</code> membatasi hasil SQL 10 baris (dengan catatan "ditampilkan 10 dari N baris"),
-<code>MAX_CARDS = 10</code> membatasi film yang dikirim ke UI, dan catatan rating hanya memuat 7 terbaru.
-Pada uji pertanyaan statistik, langkah supervisor turun dari ~2000 token menjadi ~1050 token.</p>
+dan <code>MAX_CARDS = 10</code> membatasi film yang dikirim ke UI. Catatan rating
+(<code>_rating_note()</code>) memuat <b>semua</b> film yang dirating supaya bot bisa menjawab
+pertanyaan selera secara utuh, sementara yang dipakai untuk menghitung titik selera tetap
+7 rating terbaru. Pada uji pertanyaan statistik, langkah supervisor turun dari ~2000 token
+menjadi ~1050 token.</p>
 
 <h3>5.3 Event log (dipakai untuk pewarnaan di UI)</h3>
 <table>

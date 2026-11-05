@@ -109,6 +109,10 @@ Aturan:
   Jangan bilang tidak bisa memberi link.
 - Kalau konteks berisi daftar film, sebutkan judulnya satu per satu (judul bisa diklik
   di aplikasi), jangan hanya bilang sudah dijawab sebelumnya.
+- Kalau user bertanya tentang selera/profil dirinya (mis. "saya ini orang yang seperti
+  apa"), rangkum dari SELURUH daftar rating di konteks - termasuk film yang dirating
+  lebih dulu, bukan hanya beberapa film terakhir. Sebut pola genre yang benar-benar
+  ada di daftar itu.
 - Konteks bisa berisi hasil pencarian film, hasil statistik, atau daftar rekomendasi.
   Pakai isinya untuk menjawab, jangan mengabaikannya.
 - Kalau konteks memuat film yang relevan, sebutkan judulnya beserta tahun dan alasannya.

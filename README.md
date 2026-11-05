@@ -79,8 +79,12 @@ terbaru (`autoscroll`).
 
      **Hanya `RECENT_RATINGS = 7` rating terbaru** yang dipakai menghitung titik selera,
      jadi selera lama otomatis tergantikan saat user memberi rating baru (film yang
-     dirating ulang pindah ke urutan paling belakang). Daftar "film yang dirating"
-     tetap menampilkan semua; yang dibatasi hanya perhitungan titik selera.
+     dirating ulang pindah ke urutan paling belakang).
+
+     Yang tidak dibatasi: **agent/chatbot menerima SELURUH daftar rating** sebagai konteks
+     (urut dari yang paling lama), jadi pertanyaan seperti "saya ini orang yang seperti
+     apa" dijawab dari semua film yang pernah dirating; daftar "film yang dirating" di
+     panel kanan juga menampilkan semuanya.
 
    Contoh nyata (suka: The Dark Knight, LOTR: Return of the King, Inception = 10;
    benci: Psycho):

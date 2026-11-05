@@ -272,21 +272,24 @@ GRAPH = _build_graph()
 
 
 def _rating_note(ratings: dict) -> str:
-    """Ringkasan rating user supaya agent tahu film apa saja yang sudah dinilai.
+    """Catatan rating untuk agent.
 
-    Yang dirinci hanya RECENT_RATINGS terbaru - sama dengan yang dipakai menghitung
-    titik selera, supaya agent dan rekomendasi memakai acuan yang sama.
+    Berisi SEMUA film yang dirating user (urut dari paling lama) supaya bot bisa
+    menjawab pertanyaan soal selera/profil secara utuh - termasuk film yang dirating
+    jauh sebelumnya. Yang dibatasi hanya perhitungan titik selera (RECENT_RATINGS),
+    dan itu disebutkan di catatan supaya agent tidak salah menjelaskan.
     """
     if not ratings:
         return "Rating user: belum ada film yang diberi rating."
-    terbaru = list(ratings.items())[-data.RECENT_RATINGS:]
-    movies = data.by_ids([movie_id for movie_id, _ in terbaru])
-    items = "; ".join(
-        f"{m['Series_Title']} ({int(m['year']) if m['year'] else '?'}) = {ratings[m['id']]}/10"
-        for m in movies
+    movies = data.by_ids(list(ratings))
+    baris = "\n".join(
+        f"{nomor}. {m['Series_Title']} ({int(m['year']) if m['year'] else '?'}) = {ratings[m['id']]}/10"
+        for nomor, m in enumerate(movies, start=1)
     )
-    return (f"Rating user: total {len(ratings)} film, {len(movies)} terbaru dipakai "
-            f"untuk rekomendasi: {items}")
+    dipakai = min(len(movies), data.RECENT_RATINGS)
+    return (f"Rating user - {len(movies)} film, urut dari yang paling lama dirating:\n{baris}\n"
+            f"({dipakai} rating terakhir pada daftar di atas yang dipakai menghitung "
+            "rekomendasi PCA; sisanya tetap catatan selera user.)")
 
 
 def run(question: str, history=None, ratings=None, trace=None) -> tuple[str, dict, dict]:

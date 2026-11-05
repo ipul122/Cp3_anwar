@@ -85,12 +85,17 @@ def test_lookup_by_title():
 
 
 def test_rating_note():
-    """Agent harus tahu film apa saja yang sudah dirating user."""
+    """Agent harus tahu SEMUA film yang sudah dirating user, tidak cuma yang terbaru."""
     movies = data.random_movies(2)
     note = workflow._rating_note({movies[0]["id"]: 9})
     assert movies[0]["Series_Title"] in note, note
     assert "9/10" in note, note
     assert "belum ada" in workflow._rating_note({})
+
+    banyak = data.random_movies(data.RECENT_RATINGS + 2)  # lebih dari batas centroid
+    catatan = workflow._rating_note({movie["id"]: 8 for movie in banyak})
+    for movie in banyak:
+        assert movie["Series_Title"] in catatan, f"{movie['Series_Title']} hilang dari catatan"
 
 
 if __name__ == "__main__":
