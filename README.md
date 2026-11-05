@@ -22,29 +22,42 @@ Start -> Supervisor -> (Retrieve | Analytics | Recommend) -> Supervisor -> Answe
 - **Recommend** = rekomendasi berbasis PCA dari rating user.
 - **Answer** memakai prompt `imdb-answer-agent` (jawaban hanya dari konteks RAG).
 
-## Fitur Streamlit (3 panel)
+## Fitur Streamlit (2 baris, 5 panel)
 
-Tinggi ketiga panel dibuat tetap: halaman tidak makin panjang saat chat atau rating
-bertambah — yang scroll hanya isi panelnya masing-masing
-(`LOG_HEIGHT`, `CHAT_HEIGHT`, `CARDS_HEIGHT`, `RATED_HEIGHT` di `app.py`).
-Daftar chat juga otomatis turun ke pesan terbaru (`autoscroll`).
+Tinggi semua panel tetap: halaman tidak makin panjang saat chat atau rating bertambah —
+yang scroll hanya isi panelnya (`LOG_HEIGHT`, `CHAT_HEIGHT`, `CARDS_HEIGHT`,
+`PCA_HEIGHT`, `RATED_HEIGHT` di `app.py`). Daftar chat otomatis turun ke pesan
+terbaru (`autoscroll`).
+
+**Baris atas** (`st.columns([1, 2.2, 1.2])`):
 
 1. **Kiri - console log interaktif**: token, biaya (USD), dan log flow yang menyebut
    **siapa yang dipanggil** (`route agent=supervisor`, `tool agent=retrieve-agent
    name=search_movies`, `llm name=answer tokens=... cost=...`, `warn`, `final`),
-   termasuk status reranker (`rerank: reranker` / `llm-fallback`).
-2. **Tengah - Chatbot**: percakapan dengan chat history, **poster film** hasil
-   rekomendasi agent, dan expander "Data dari vector database (Qdrant)" sebagai bukti
-   jawaban berasal dari RAG. Ada indikator loading saat agent memproses.
-3. **Kanan - Card rekomendasi**: tiap card menampilkan **poster + judul + genre +
-   rating IMDb**, slider rating 1-10, dan di bawahnya **daftar film yang sudah
-   dirating user**. Card diisi dua sumber:
+   termasuk status reranker (`rerank: reranker` / `llm-fallback`). Tiap jenis log
+   diberi warna berbeda supaya alurnya mudah dibaca.
+2. **Tengah - Chatbot**: percakapan dengan chat history, **poster film** (bisa diklik
+   ke IMDb) pada jawaban yang menyebut film, dan expander "Data dari vector database
+   (Qdrant)" sebagai bukti jawaban berasal dari RAG. Ada indikator loading saat agent
+   memproses.
+3. **Kanan - Card rekomendasi**: `K_RECO = 5` film, tiap card menampilkan **poster +
+   judul (link IMDb) + genre + rating IMDb**, slider rating 1-10, dan tombol simpan.
+   Sumber card:
    - **acak** saat sesi baru (belum ada rating),
-   - **hasil rekomendasi chatbot** (film yang baru disebut agent) sehingga user
-     memberi rating berdasarkan interaksi chatbot,
+   - **hasil jawaban chatbot** (film yang baru disebut agent) — caption card
+     menampilkan pertanyaan yang menghasilkannya,
    - **tetangga terdekat PCA** begitu ada rating: titik tengah `PC1, PC2` film yang
-     dirating (dibobot nilai rating) -> k tetangga terdekat (jarak euclidean),
+     dirating (dibobot nilai rating) -> `K_RECO` tetangga terdekat (jarak euclidean),
      film yang sudah dirating dibuang.
+
+**Baris bawah** (`st.columns([2.2, 1.2])`):
+
+4. **Kiri - Visualisasi PCA**: scatter `PC1` vs `PC2` untuk **seluruh 1000 film**
+   (`st.scatter_chart`, dikelompokkan: semua film / film yang kamu rating / selera
+   kamu / rekomendasi / jangkauan). Titik "selera kamu" adalah centroid rating, dan
+   **jangkauan rekomendasi** digambar sebagai lingkaran sejauh jarak euclidean ke
+   tetangga terjauh.
+5. **Kanan - Daftar film yang dirating user 1-10** + tombol hapus semua rating.
 
 ## Guardrail (anti jailbreak)
 

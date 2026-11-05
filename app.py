@@ -11,6 +11,8 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 import httpx
+import numpy as np
+import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
@@ -20,11 +22,13 @@ from imdb_anwar import config, data, workflow  # noqa: E402
 st.set_page_config(page_title="IMDb Movie Assistant", page_icon="🎬", layout="wide")
 
 # Tinggi panel dibuat tetap supaya halaman tidak makin panjang saat chat/rating
-# bertambah - yang scroll hanya bagian dalam panelnya (kiri, tengah, kanan).
+# bertambah - yang scroll hanya bagian dalam panelnya.
+K_RECO = 5  # jumlah rekomendasi
 LOG_HEIGHT = 520
 CHAT_HEIGHT = 520
-CARDS_HEIGHT = 430
-RATED_HEIGHT = 150
+CARDS_HEIGHT = 460
+PCA_HEIGHT = 400
+RATED_HEIGHT = 400
 
 # Warna badge di console log supaya alurnya mudah dibaca:
 # user biru, supervisor violet, tool oranye, hasil tool abu-abu, jawaban hijau,
@@ -96,19 +100,21 @@ def setup():
     st.session_state.setdefault("titles", {})
     st.session_state.setdefault("trace", workflow.new_trace(f"streamlit-{uuid.uuid4().hex[:8]}"))
     st.session_state.setdefault("chat", [])
-    st.session_state.setdefault("cards", data.random_movies(3))
+    st.session_state.setdefault("cards", data.random_movies(K_RECO))
     st.session_state.setdefault("card_source", "acak")
+    st.session_state.setdefault("card_query", "")
 
 
 def refresh_cards():
     """Card rekomendasi: acak kalau belum ada rating, PCA kalau sudah ada."""
     ratings = st.session_state.ratings
     if not ratings:
-        st.session_state.cards = data.random_movies(3)
+        st.session_state.cards = data.random_movies(K_RECO)
         st.session_state.card_source = "acak"
     else:
-        st.session_state.cards = data.pca_neighbors(data.rating_center(ratings), k=3, exclude=ratings)
+        st.session_state.cards = data.pca_neighbors(data.rating_center(ratings), k=K_RECO, exclude=ratings)
         st.session_state.card_source = "pca"
+    st.session_state.card_query = ""
 
 
 def save_rating(movie, score):
@@ -133,6 +139,7 @@ def ask(question):
     if state.get("movies"):  # film hasil rekomendasi agent langsung bisa dirating
         st.session_state.cards = state["movies"]
         st.session_state.card_source = "chat"
+        st.session_state.card_query = question
 
 
 def movie_card(movie, prefix):
@@ -204,16 +211,16 @@ def chat_panel():
 
 
 def card_panel():
-    """Kanan: card rekomendasi yang bisa dirating + daftar film yang sudah dirating."""
+    """Kanan atas: card rekomendasi yang bisa dirating (k = K_RECO)."""
     ratings = st.session_state.ratings
     source = st.session_state.card_source
     st.subheader("Card rekomendasi")
     if source == "chat":
-        st.caption("dari rekomendasi chatbot")
+        st.caption(f"dari jawaban chatbot · {st.session_state.card_query}")
     elif source == "pca":
-        st.caption(f"mengikuti {len(ratings)} rating kamu lewat PCA")
+        st.caption(f"{K_RECO} film terdekat dari {len(ratings)} rating kamu (PCA)")
     else:
-        st.caption("acak dulu (belum ada rating user)")
+        st.caption(f"{K_RECO} film acak (belum ada rating user)")
     with st.container(height=CARDS_HEIGHT, border=False):
         for movie in st.session_state.cards:
             movie_card(movie, "card")
@@ -226,10 +233,49 @@ def card_panel():
             refresh_cards()
             st.rerun()
 
+
+def pca_panel():
+    """Kiri bawah: sebaran semua film di ruang PCA + titik selera + jangkauan rekomendasi."""
+    ratings = st.session_state.ratings
+    frame = pd.DataFrame(data.pca_points())
+    frame["kelompok"] = "semua film"
+    frame.loc[frame["id"].isin(ratings), "kelompok"] = "film yang kamu rating"
+    caption = f"{len(frame)} film di ruang PCA 2D. Beri rating supaya titik selera dan jangkauan muncul."
+
+    center = data.rating_center(ratings)
+    if center:
+        marks = [{"Series_Title": "selera kamu", "PC1": center[0], "PC2": center[1],
+                  "kelompok": "selera kamu"}]
+        marks[0].update({"id": -1})
+        recommendations = (st.session_state.cards if st.session_state.card_source != "acak"
+                           else data.pca_neighbors(center, k=K_RECO, exclude=ratings))
+        for movie in recommendations:
+            marks.append({"id": movie["id"], "Series_Title": movie["Series_Title"],
+                          "PC1": movie["PC1"], "PC2": movie["PC2"], "kelompok": "rekomendasi"})
+        radius = max(float(np.hypot(m["PC1"] - center[0], m["PC2"] - center[1])) for m in recommendations)
+        angle = np.linspace(0, 2 * np.pi, 90)
+        ring = pd.DataFrame({
+            "PC1": center[0] + radius * np.cos(angle),
+            "PC2": center[1] + radius * np.sin(angle),
+            "kelompok": "jangkauan rekomendasi",
+        })
+        frame = pd.concat([frame, pd.DataFrame(marks), ring], ignore_index=True)
+        caption = (f"titik selera kamu: PC1={center[0]:.2f}, PC2={center[1]:.2f} · "
+                   f"jangkauan {len(recommendations)} rekomendasi = {radius:.3f} "
+                   f"(jarak euclidean ke tetangga terjauh)")
+
+    st.subheader("Visualisasi PCA")
+    st.scatter_chart(frame, x="PC1", y="PC2", color="kelompok", height=PCA_HEIGHT)
+    st.caption(caption)
+
+
+def rated_panel():
+    """Kanan bawah: daftar film yang sudah dirating user."""
+    ratings = st.session_state.ratings
     st.subheader("Daftar film yang dirating user 1-10")
     with st.container(height=RATED_HEIGHT, border=False):
         if not ratings:
-            st.caption("Belum ada. Beri rating dari card di atas atau dari rekomendasi chatbot.")
+            st.caption("Belum ada. Beri rating dari card rekomendasi atau dari jawaban chatbot.")
         for movie_id, score in ratings.items():
             st.write(f"**{score}/10** · {st.session_state.titles.get(movie_id, movie_id)}")
     if ratings and st.button("Hapus semua rating", use_container_width=True):
@@ -241,14 +287,20 @@ def card_panel():
 
 def main():
     setup()
-    left, middle, right = st.columns([1, 2.2, 1.3], gap="large")
-    with left:
+    top_left, top_middle, top_right = st.columns([1, 2.2, 1.2], gap="large")
+    with top_left:
         console_panel()
-    with middle:
+    with top_middle:
         st.subheader("Chatbot")
         chat_panel()
-    with right:
+    with top_right:
         card_panel()
+
+    bottom_left, bottom_right = st.columns([2.2, 1.2], gap="large")
+    with bottom_left:
+        pca_panel()
+    with bottom_right:
+        rated_panel()
 
 
 main()

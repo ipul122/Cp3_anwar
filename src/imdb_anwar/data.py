@@ -68,6 +68,11 @@ def pca_neighbors(center: tuple[float, float], k: int = 3, exclude=()) -> list[d
     return [r for r in rows if r["id"] not in skip][:k]
 
 
+def pca_points() -> list[dict]:
+    """Semua titik (PC1, PC2) untuk visualisasi sebaran film."""
+    return query("SELECT id, Series_Title, PC1, PC2 FROM imdb_movies WHERE PC1 IS NOT NULL")
+
+
 def to_json(records: list[dict]) -> str:
     """Ubah baris hasil query jadi JSON, dipakai sebagai output tool dan konteks agent."""
     return json.dumps(records, ensure_ascii=False, default=str)
