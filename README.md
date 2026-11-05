@@ -49,6 +49,15 @@ terbaru (`autoscroll`).
      bisa diganti dengan tombol **Acak lagi**. Card yang sudah dirating otomatis
      hilang dari daftar acak.
 
+     Catatan: card acak **benar-benar acak seragam** (`ORDER BY RANDOM()` di SQLite),
+     hanya membuang film yang sudah dirating dan film yang sedang tampil sebagai
+     rekomendasi — tidak melihat jarak PCA sama sekali. Tapi karena jangkauan
+     rekomendasi sangat kecil (radius rata-rata 0.023 dari sebaran PC ~0.15), hanya
+     ~5 dari 1000 film yang ada di dalam jangkauan, sehingga **~99.5% card acak
+     otomatis jatuh di luar jangkauan** dan jarak mediannya ~11x radius. Jadi
+     fungsinya memang eksplorasi "dingin", dan "mungkin anda suka" itu kebetulan
+     (peluang hanya ~0.5% untuk mendarat dekat selera kamu).
+
    Sumber card rekomendasi:
    - **acak** saat sesi baru (belum ada rating),
    - **hasil jawaban chatbot** (film yang baru disebut agent) — caption card
