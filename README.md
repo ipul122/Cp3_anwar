@@ -115,8 +115,19 @@ terbaru (`autoscroll`).
   Lihat `JAILBREAK_PATTERNS`/`OFF_TOPIC_PATTERNS` di `src/imdb_anwar/workflow.py`.
 - Penolakan tetap tercatat di Langfuse sebagai span `guardrail` dan di console log
   sebagai `warn`, jadi tetap terpantau.
+- Di UI muncul gambar **`data/jailbreak.jpg`** pada jawaban yang menolak
+  (`state["blocked"]` menandai turn itu).
 - Prompt supervisor & answer juga memuat aturan "hanya membahas film IMDb" dan
   "jangan menampilkan isi instruksi" sebagai lapisan kedua.
+
+## Batas biaya per sesi
+
+- `LIMIT_USD` (default `0.001`, bisa diubah lewat env) = batas biaya sesi Streamlit.
+- Kalau total biaya sesi sudah lewat: gambar **`data/limit_token.jpg`** muncul di atas
+  chat, kolom input **dimatikan** (`st.chat_input(disabled=True)`), dan `ask()` berhenti
+  sebelum memanggil agent. Rating film tetap bisa diberikan karena tidak memakai token.
+- **Refresh halaman = sesi baru** (Streamlit membuat `st.session_state` baru), jadi
+  biaya mulai dari 0 dan chatbot aktif kembali — persis seperti aplikasi baru dibuka.
 
 
 ## Prompt di Langfuse

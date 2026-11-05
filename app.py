@@ -54,6 +54,29 @@ def log_color(entry) -> str:
     return LOG_COLORS.get(entry["event"], "gray")
 
 
+ASSETS_DIR = Path(__file__).resolve().parent / "data"
+BANNERS = {
+    "jailbreak": ASSETS_DIR / "jailbreak.jpg",  # muncul kalau user mencoba jailbreak
+    "limit": ASSETS_DIR / "limit_token.jpg",  # muncul kalau biaya sesi sudah lewat LIMIT_USD
+}
+
+
+def show_banner(kind: str, caption: str = "") -> None:
+    """Tampilkan gambar peringatan di dalam chat."""
+    path = BANNERS.get(kind)
+    if path and path.exists():
+        st.image(str(path), width="stretch")
+    else:
+        st.error(f"Gambar '{kind}' tidak ditemukan di {path}")
+    if caption:
+        st.caption(caption)
+
+
+def limit_reached() -> bool:
+    """True kalau biaya sesi sudah melewati config.LIMIT_USD."""
+    return st.session_state.trace["cost"] >= config.LIMIT_USD
+
+
 @st.cache_data(show_spinner=False, ttl=86400)
 def poster_bytes(url: str) -> bytes | None:
     """Ambil gambar poster sekali per URL (hasilnya di-cache). None kalau URL mati."""
@@ -152,13 +175,16 @@ def save_rating(movie, score):
 
 def ask(question):
     """Kirim pertanyaan ke agent (dengan indikator loading) lalu simpan jawabannya."""
+    if limit_reached():  # sudah lewat batas biaya sesi
+        return
     with st.spinner("Agent sedang memproses... (lihat flow-nya di console log)"):
         answer, state, _ = workflow.run(question, st.session_state.chat,
-                                       st.session_state.ratings, st.session_state.trace)
+                                        st.session_state.ratings, st.session_state.trace)
     st.session_state.chat.append({"role": "user", "content": question})
     st.session_state.chat.append({"role": "assistant", "content": answer,
                                   "context": state["context"],
-                                  "movies": (state.get("movies") or [])[:3]})
+                                  "movies": (state.get("movies") or [])[:3],
+                                  "blocked": state.get("blocked", "")})
     if state.get("movies"):  # film hasil rekomendasi agent langsung bisa dirating
         st.session_state.cards = state["movies"]
         st.session_state.card_source = "chat"
@@ -228,11 +254,17 @@ def chat_panel():
     panjang; yang scroll hanya daftar pesannya (dan otomatis turun ke pesan baru).
     """
     with st.container(height=CHAT_HEIGHT, border=False, autoscroll=True):
-        if not st.session_state.chat:
+        if limit_reached():
+            show_banner("limit", f"Batas biaya sesi (${config.LIMIT_USD:.4f}) sudah tercapai. "
+                                 "Chatbot berhenti dulu - refresh halaman untuk memulai sesi baru "
+                                 "(rating film tetap bisa diberikan).")
+        if not st.session_state.chat and not limit_reached():
             st.caption("Mulai dengan bertanya, misal: \"rekomendasikan film perang dunia kedua\".")
         for position, message in enumerate(st.session_state.chat):
             with st.chat_message(message["role"]):
                 st.write(message["content"])
+                if message.get("blocked"):
+                    show_banner("jailbreak", "Percobaan jailbreak terdeteksi - permintaan ditolak.")
                 if message["role"] == "assistant" and message.get("movies"):
                     # film di jawaban chatbot bisa langsung dirating
                     chat_movies(message["movies"], position)
@@ -240,7 +272,7 @@ def chat_panel():
                     with st.expander("Data dari vector database (Qdrant)"):
                         for item in message["context"]:
                             st.write(item[:600])
-    question = st.chat_input("Tanya soal film IMDb...")
+    question = st.chat_input("Tanya soal film IMDb...", disabled=limit_reached())
     if question:
         ask(question)
         st.rerun()

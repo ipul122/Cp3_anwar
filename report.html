@@ -49,7 +49,7 @@ menulis jawaban final dari konteks yang terkumpul.</p>
   <tr><td>Vector DB</td><td>Qdrant Cloud, collection <code>imdb_movies</code> (1000 vektor, cosine)</td></tr>
   <tr><td>Prompt &amp; tracing</td><td>Langfuse (SDK v5, OpenTelemetry), prompt label <code>production</code></td></tr>
   <tr><td>Ukuran kode</td><td>app.py 391 &middot; workflow.py 330 &middot; data.py 182 &middot; vectorstore.py 85 &middot; config.py 61 &middot; tools.py 58 &middot; prompts.py 35 baris</td></tr>
-  <tr><td>Konstanta penting</td><td>K_RECO 5 &middot; K_RANDOM 3 &middot; RECENT_RATINGS 7 &middot; PUSH_AWAY 0.5 &middot; MAX_STEPS 6 &middot; MAX_CARDS 10</td></tr>
+  <tr><td>Konstanta penting</td><td>K_RECO 5 &middot; K_RANDOM 3 &middot; RECENT_RATINGS 7 &middot; PUSH_AWAY 0.5 &middot; MAX_STEPS 6 &middot; MAX_CARDS 10 &middot; LIMIT_USD 0.001</td></tr>
 </table>
 
 <h2>1. Arsitektur multi-agent</h2>
@@ -305,13 +305,25 @@ di Langfuse memunculkan <code>PromptMissing</code> dengan pesan jelas.</p>
 <table>
   <tr><th>Panel</th><th>Isi</th><th>Konstanta</th></tr>
   <tr><td>Kiri atas</td><td>Token (total/in/out), Biaya USD, log interaktif berwarna</td><td><code>LOG_HEIGHT = 520</code></td></tr>
-  <tr><td>Tengah atas</td><td>Chatbot: history, poster, <b>rating 1-10 langsung dari jawaban</b>, expander bukti RAG, spinner</td><td><code>CHAT_HEIGHT = 520</code></td></tr>
+  <tr><td>Tengah atas</td><td>Chatbot: history, poster, <b>rating 1-10 langsung dari jawaban</b>, expander bukti RAG, spinner, <b>banner jailbreak</b> &amp; <b>banner batas biaya</b></td><td><code>CHAT_HEIGHT = 520</code>, <code>LIMIT_USD</code></td></tr>
   <tr><td>Kanan atas</td><td>Card rekomendasi (5) + Card acak (3) yang bisa dirating</td><td><code>K_RECO = 5</code>, <code>K_RANDOM = 3</code>, <code>CARDS_HEIGHT = 500</code>, <code>RANDOM_HEIGHT = 300</code></td></tr>
   <tr><td>Kiri bawah</td><td>Visualisasi PCA: 1000 titik + titik selera + jangkauan + card acak; hover menampilkan judul</td><td><code>PCA_HEIGHT = 400</code></td></tr>
   <tr><td>Kanan bawah</td><td>Daftar film yang dirating user (font kecil) + hapus rating</td><td><code>RATED_HEIGHT = 150</code></td></tr>
 </table>
 <p><b>Semua panel bertinggi tetap</b> sehingga halaman tidak makin panjang ketika chat/rating bertambah;
 yang bergulir hanya isi panelnya, dan chat memakai <code>autoscroll</code>.</p>
+
+<h3>6.1 Dua banner gambar di chat</h3>
+<table>
+  <tr><th>Banner</th><th>Kapan muncul</th><th>Efek</th></tr>
+  <tr><td><code>data/jailbreak.jpg</code></td><td>Turn ditolak guardrail (<code>state["blocked"]</code> terisi)</td>
+      <td>Gambar tampil di bawah jawaban penolakan + caption "Percobaan jailbreak terdeteksi"</td></tr>
+  <tr><td><code>data/limit_token.jpg</code></td><td>Total biaya sesi &ge; <code>LIMIT_USD</code> (default 0.001 USD)</td>
+      <td>Gambar tampil di atas chat, <code>st.chat_input(disabled=True)</code>, <code>ask()</code> berhenti sebelum memanggil agent.
+          Rating film tetap bisa. Refresh halaman = sesi baru (biaya 0) sehingga chatbot aktif lagi.</td></tr>
+</table>
+<p>Pemeriksaan biaya ada di <code>limit_reached()</code> (baca <code>st.session_state.trace["cost"]</code>) sehingga
+tidak ada panggilan LLM yang terbuang setelah batas tercapai.</p>
 
 
 <div class="page-break"></div>

@@ -68,6 +68,7 @@ class State(TypedDict):
     steps: int
     visited: list
     movies: list
+    blocked: str
     answer: str
     trace: dict
 
@@ -305,6 +306,7 @@ def run(question: str, history=None, ratings=None, trace=None) -> tuple[str, dic
         "steps": 0,
         "visited": [],
         "movies": [],
+        "blocked": "",
         "answer": "",
         "trace": trace,
     }
@@ -321,7 +323,7 @@ def run(question: str, history=None, ratings=None, trace=None) -> tuple[str, dic
                     log_event(trace, "warn", agent="guardrail", detail=f"pola '{blocked}' ditolak")
                 log_event(trace, "final", agent="guardrail", detail="dijawab tanpa agent/tool")
                 answer = GUARD_REPLY
-                result = {**state, "answer": answer}
+                result = {**state, "answer": answer, "blocked": blocked}
             else:
                 result = GRAPH.invoke(state)
                 answer = result["answer"]

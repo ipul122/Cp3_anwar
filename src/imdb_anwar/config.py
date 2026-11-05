@@ -24,6 +24,10 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
 RERANK_MODEL = os.getenv("Rerank_MODEL") or os.getenv("RERANK_MODEL", "mongodb/rerank-2.5")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "imdb_movies")
 
+# Batas biaya (USD) per sesi Streamlit. Kalau tercapai, chatbot berhenti dulu
+# sampai halaman di-refresh (sesi baru). Bisa diubah lewat env.
+LIMIT_USD = float(os.getenv("LIMIT_USD", "0.001"))
+
 # Nama prompt di Langfuse (semuanya bisa ditimpa lewat env).
 PROMPT_LABEL = os.getenv("LANGFUSE_PROMPT_LABEL", "production")
 PROMPT_SUPERVISOR = os.getenv("LANGFUSE_PROMPT_SUPERVISOR", "imdb-supervisor")
