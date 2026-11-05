@@ -196,4 +196,8 @@ sync_prompts.py                 # kirim ulang prompt README_prompt.md ke Langfus
 fix_posters.py                  # perbaiki Poster_Link di database dari CSV asli
 eval_pca.py                     # ukur kualitas rekomendasi PCA 2D
 check.py                        # cek cepat tanpa panggilan LLM
+report.pdf / report.html        # laporan alur kode & kegunaan (PDF dari report.html)
 ```
+
+Mengubah laporan: edit `report.html` lalu cetak ulang, mis.
+`msedge --headless=new --print-to-pdf=report.pdf report.html`.
