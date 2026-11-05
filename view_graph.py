@@ -1,12 +1,16 @@
+"""Simpan diagram graph LangGraph ke folder graph_output/."""
+
+import sys
 from pathlib import Path
 
-from src.imdb_anwar.workflow import workflow
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
+from imdb_anwar.workflow import GRAPH  # noqa: E402
 
 OUTPUT_DIR = Path("graph_output")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-graph = workflow.get_graph()
+graph = GRAPH.get_graph()
 mermaid = graph.draw_mermaid()
 
 (OUTPUT_DIR / "workflow.mmd").write_text(mermaid, encoding="utf-8")

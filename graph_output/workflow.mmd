@@ -6,19 +6,20 @@ config:
 graph TD;
 	__start__([<p>__start__</p>]):::first
 	supervisor(supervisor)
-	retrieval_agent(retrieval_agent)
-	analyst_agent(analyst_agent)
-	validator_agent(validator_agent)
-	answer_agent(answer_agent)
+	retrieve(retrieve)
+	analytics(analytics)
+	recommend(recommend)
+	answer(answer)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> supervisor;
-	analyst_agent --> validator_agent;
-	retrieval_agent --> validator_agent;
-	supervisor -.-> analyst_agent;
-	supervisor -.-> retrieval_agent;
-	validator_agent -.-> answer_agent;
-	validator_agent -.-> supervisor;
-	answer_agent --> __end__;
+	analytics --> supervisor;
+	recommend --> supervisor;
+	retrieve --> supervisor;
+	supervisor -.-> analytics;
+	supervisor -.-> answer;
+	supervisor -.-> recommend;
+	supervisor -.-> retrieve;
+	answer --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc
