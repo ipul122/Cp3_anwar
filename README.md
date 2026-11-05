@@ -11,16 +11,24 @@ Sumber data: SQLite `data/database.db` (tabel `imdb_movies`, 1000 film + kolom
 ## Alur
 
 ```
-Start -> Supervisor -> (Retrieve | Analytics | Recommend) -> Supervisor -> Answer -> Stop
+Start -> Supervisor -> (Retrieve | Analytics | Recommend | Lookup) -> Supervisor -> Answer -> Stop
 ```
 
 - **Supervisor** memilih satu langkah (route) memakai prompt `imdb-supervisor`.
 - **Retrieve** = tool `search_movies`: embedding query -> Qdrant -> SQLite ->
-  **reranker** (`mongodb/rerank-2.5`, bisa diganti via env `Rerank_MODEL`).
+  **reranker** (`qwen/qwen3-reranker-8b`, bisa diganti via env `Rerank_MODEL`).
 - **Analytics** = tool `movie_stats`: LLM menyusun SQL (prompt `imdb-sql-agent`)
-  lalu dijalankan read-only ke SQLite.
+  lalu dijalankan read-only ke SQLite. Kalau hasilnya daftar film, filmnya ikut
+  dikirim ke UI sebagai card.
+- **Lookup** = tool `find_movies_by_title`: ambil film dari **judul** yang disebut user
+  atau ada di riwayat percakapan (mis. "tampilkan film ini", "mana linknya") tanpa
+  perlu embedding/rerank.
 - **Recommend** = rekomendasi berbasis PCA dari rating user.
 - **Answer** memakai prompt `imdb-answer-agent` (jawaban hanya dari konteks RAG).
+
+Tiap film di konteks membawa kunci `link` (halaman IMDb) sehingga agent bisa memberi
+link kalau diminta. Konteks dijaga ringkas: `overview` dipotong 200 karakter, hasil SQL
+dibatasi 10 baris, dan film yang dikirim ke UI maksimal `MAX_CARDS = 10`.
 
 ## Fitur Streamlit (2 baris, 5 panel)
 

@@ -27,6 +27,18 @@ def search_movies(query: str) -> str:
 
 
 @tool
+def find_movies_by_title(titles: str) -> str:
+    """Ambil detail film dari daftar JUDUL (bukan deskripsi).
+
+    Pakai tool ini kalau user minta menampilkan/membuka film yang sudah disebut
+    sebelumnya, atau menyebut judul film secara langsung. Isi `titles` dengan satu
+    judul per baris.
+    """
+    daftar = [t.strip() for t in titles.replace(";", "\n").split("\n") if t.strip()]
+    return data.to_json(data.by_titles(daftar))
+
+
+@tool
 def movie_stats(question: str) -> str:
     """Jawab pertanyaan angka atau statistik tentang koleksi film lewat SQL ke SQLite.
 

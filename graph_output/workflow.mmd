@@ -9,14 +9,17 @@ graph TD;
 	retrieve(retrieve)
 	analytics(analytics)
 	recommend(recommend)
+	lookup(lookup)
 	answer(answer)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> supervisor;
 	analytics --> supervisor;
+	lookup --> supervisor;
 	recommend --> supervisor;
 	retrieve --> supervisor;
 	supervisor -.-> analytics;
 	supervisor -.-> answer;
+	supervisor -.-> lookup;
 	supervisor -.-> recommend;
 	supervisor -.-> retrieve;
 	answer --> __end__;

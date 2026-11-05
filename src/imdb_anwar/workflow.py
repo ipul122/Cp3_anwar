@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from . import config, data, prompts, tools, vectorstore
 
 MAX_STEPS = 6
+MAX_CARDS = 10  # batas film yang dikirim ke UI dari hasil tool (jangan sampai card kebanjiran)
 
 # Guardrail: permintaan di luar topik film dan usaha mengubah instruksi ditolak
 # sebelum agent/tool dipanggil, jadi tidak ada token yang terbuang.
@@ -46,9 +47,10 @@ def _guardrail_hit(question: str) -> str | None:
 class Decision(BaseModel):
     """Keputusan supervisor untuk langkah berikutnya."""
 
-    route: Literal["retrieve", "analytics", "recommend", "answer"] = Field(
-        description="retrieve=pencarian film, analytics=statistik/SQL, "
-        "recommend=rekomendasi dari rating user, answer=jawab sekarang"
+    route: Literal["retrieve", "analytics", "recommend", "lookup", "answer"] = Field(
+        description="retrieve=pencarian film dari deskripsi, analytics=statistik/SQL, "
+        "recommend=rekomendasi dari rating user, lookup=ambil film dari JUDUL yang disebut "
+        "user/riwayat (mis. minta link atau menampilkan film), answer=jawab sekarang"
     )
     query: str = Field(default="", description="Query pencarian atau pertanyaan statistik")
     reason: str = Field(default="", description="Alasan singkat pemilihan route")
@@ -159,13 +161,58 @@ def retrieve(state: State) -> dict:
             "movies": movies}
 
 
+def _compact_result(hasil: str, limit: int = 10) -> str:
+    """Ringkas hasil SQL supaya konteks LLM tidak boros token."""
+    try:
+        muatan = json.loads(hasil)
+    except (ValueError, TypeError):
+        return hasil[:600]
+    if not isinstance(muatan, dict) or "rows" not in muatan:
+        return hasil[:600]
+    baris = muatan["rows"]
+    ringkas = {"sql": muatan.get("sql", ""), "rows": baris[:limit]}
+    if len(baris) > limit:
+        ringkas["catatan"] = f"ditampilkan {limit} dari {len(baris)} baris"
+    return json.dumps(ringkas, ensure_ascii=False, default=str)
+
+
+def _ids_from_result(hasil: str) -> list[int]:
+    """Ambil kolom `id` dari hasil SQL, kalau ada (untuk memunculkan card film)."""
+    try:
+        payload = json.loads(hasil)
+    except (ValueError, TypeError):
+        return []
+    baris = payload.get("rows", []) if isinstance(payload, dict) else payload
+    return [row["id"] for row in baris if isinstance(row, dict) and isinstance(row.get("id"), int)]
+
+
 def analytics(state: State) -> dict:
     """Agent analytics: jawab pertanyaan angka lewat SQL ke SQLite."""
     question = state["query"] or state["question"]
     log_event(state["trace"], "tool", agent="analytics-agent", name="movie_stats", detail=question)
-    rows = tools.movie_stats.invoke({"question": question})
-    log_event(state["trace"], "tool_result", agent="analytics-agent", name="movie_stats", detail=rows[:120])
-    return {"context": state["context"] + [f"Hasil statistik: {rows}"]}
+    hasil = tools.movie_stats.invoke({"question": question})
+    log_event(state["trace"], "tool_result", agent="analytics-agent", name="movie_stats", detail=hasil[:120])
+    hasil_state = {"context": state["context"] + [f"Hasil statistik: {_compact_result(hasil)}"]}
+    # kalau hasil SQL berisi daftar film, kirim juga ke UI supaya bisa tampil sebagai card
+    movies = data.by_ids(_ids_from_result(hasil)[:MAX_CARDS])
+    if movies:
+        hasil_state["movies"] = movies
+    return hasil_state
+
+
+def lookup(state: State) -> dict:
+    """Agent lookup: ambil film dari JUDUL yang disebut user atau riwayat percakapan."""
+    titles = state["query"] or state["question"]
+    log_event(state["trace"], "tool", agent="lookup-agent", name="find_movies_by_title",
+              detail=titles[:120])
+    movies = json.loads(tools.find_movies_by_title.invoke({"titles": titles}))
+    log_event(state["trace"], "tool_result", agent="lookup-agent", name="find_movies_by_title",
+              detail=f"{len(movies)} film")
+    movies = movies[:MAX_CARDS]
+    hasil_state = {"context": state["context"] + [f"Detail film yang diminta: {data.for_llm(movies)}"]}
+    if movies:
+        hasil_state["movies"] = movies
+    return hasil_state
 
 
 def recommend(state: State) -> dict:
@@ -205,15 +252,17 @@ def _build_graph():
     graph.add_node("retrieve", retrieve)
     graph.add_node("analytics", analytics)
     graph.add_node("recommend", recommend)
+    graph.add_node("lookup", lookup)
     graph.add_node("answer", answer)
 
     graph.add_edge(START, "supervisor")
     graph.add_conditional_edges(
         "supervisor",
         lambda state: state["route"],
-        {"retrieve": "retrieve", "analytics": "analytics", "recommend": "recommend", "answer": "answer"},
+        {"retrieve": "retrieve", "analytics": "analytics", "recommend": "recommend",
+         "lookup": "lookup", "answer": "answer"},
     )
-    for node in ("retrieve", "analytics", "recommend"):
+    for node in ("retrieve", "analytics", "recommend", "lookup"):
         graph.add_edge(node, "supervisor")
     graph.add_edge("answer", END)
     return graph.compile()

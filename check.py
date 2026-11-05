@@ -37,7 +37,7 @@ def test_prompts():
 
 def test_graph():
     nodes = set(workflow.GRAPH.get_graph().nodes)
-    assert {"supervisor", "retrieve", "analytics", "recommend", "answer"} <= nodes, nodes
+    assert {"supervisor", "retrieve", "analytics", "recommend", "lookup", "answer"} <= nodes, nodes
 
     trace = workflow.new_trace()
     workflow.log_event(trace, "test", detail="oke")
@@ -61,6 +61,20 @@ def test_rating_center():
     assert distance(hated) > distance(only_liked), "film yang tidak disukai harus mendorong pusat menjauh"
     assert distance(hated) > distance(mild), "rating 1 harus mendorong lebih kuat daripada rating 5"
     assert data.rating_center({disliked["id"]: 2}) is not None, "semua jelek tetap harus menghasilkan titik"
+
+
+def test_lookup_by_title():
+    """Film bisa diambil dari judul (route lookup) dan link IMDb ikut ke konteks LLM."""
+    sample = data.random_movies(1)[0]
+    judul = str(sample["Series_Title"]).title()
+
+    for variant in (judul, f"{judul} (1999)"):  # tahun di judul harus dibuang dulu
+        found = [m for m in data.by_titles([variant]) if m["id"] == sample["id"]]
+        assert found, f"judul '{variant}' harus ketemu"
+
+    konteks = data.for_llm(data.by_titles([judul]))
+    assert "imdb.com/find" in konteks, "link IMDb harus ada di konteks LLM"
+    assert data.by_titles(["ab"]) == [], "judul terlalu pendek harus dilewati"
 
 
 def test_rating_note():

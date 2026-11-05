@@ -8,7 +8,6 @@ berikutnya dihitung dari rating itu memakai kedekatan PCA.
 import sys
 import uuid
 from pathlib import Path
-from urllib.parse import quote_plus
 
 import httpx
 import numpy as np
@@ -67,12 +66,6 @@ def poster_bytes(url: str) -> bytes | None:
         return None
 
 
-def imdb_url(movie) -> str:
-    """Link halaman film di IMDb (pakai pencarian judul + tahun)."""
-    year = int(movie["year"]) if movie.get("year") else ""
-    return f"https://www.imdb.com/find/?q={quote_plus(str(movie['Series_Title']).title())}+{year}"
-
-
 def poster_url(movie) -> str | None:
     """Poster ukuran 300px. Poster_Link di database cuma 67px."""
     link = str(movie.get("Poster_Link") or "")
@@ -88,7 +81,7 @@ def show_poster(movie, width: int = 104):
     url = poster_url(movie)
     if url and poster_bytes(url):
         st.markdown(
-            f'<a href="{imdb_url(movie)}" target="_blank">'
+            f'<a href="{data.imdb_url(movie)}" target="_blank">'
             f'<img src="{url}" width="{width}" alt="poster"></a>',
             unsafe_allow_html=True,
         )
@@ -179,7 +172,7 @@ def movie_card(movie, prefix):
             show_poster(movie, width=104)
         with info:
             year = int(movie["year"]) if movie["year"] else "?"
-            st.markdown(f"**[{str(movie['Series_Title']).title()}]({imdb_url(movie)})** ({year})")
+            st.markdown(f"**[{str(movie['Series_Title']).title()}]({data.imdb_url(movie)})** ({year})")
             st.caption(f"{movie['genre']} · ⭐ {movie['rating']}")
             st.write(f"{str(movie['overview'])[:110]}…")
         score = st.slider("Rating (1-10)", 1, 10, 7, key=f"slider_{prefix}_{movie['id']}")
@@ -217,7 +210,7 @@ def chat_movies(movies, position):
     for index, (column, movie) in enumerate(zip(columns, movies)):
         with column:
             show_poster(movie, width=84)
-            st.markdown(f"[{str(movie['Series_Title']).title()}]({imdb_url(movie)})")
+            st.markdown(f"[{str(movie['Series_Title']).title()}]({data.imdb_url(movie)})")
             if movie["id"] in ratings:
                 st.caption(f"✓ dirating {ratings[movie['id']]}/10")
                 continue

@@ -1,7 +1,9 @@
 """Akses tabel `imdb_movies` di SQLite."""
 
 import json
+import re
 import sqlite3
+from urllib.parse import quote_plus
 
 from . import config
 
@@ -15,6 +17,8 @@ FIELDS = (
 # Kolom yang perlu dikirim ke LLM sebagai konteks (tanpa poster/PC agar hemat token).
 LLM_FIELDS = ("id", "Series_Title", "year", "genre", "director", "rating", "overview")
 
+OVERVIEW_CHARS = 200  # overview dipotong supaya konteks tidak boros token
+
 PUSH_AWAY = 0.5  # seberapa kuat film yang tidak disukai mendorong titik selera
 
 
@@ -23,6 +27,12 @@ def query(sql: str, params=()) -> list[dict]:
     with sqlite3.connect(config.DB_URI, uri=True) as conn:
         conn.row_factory = sqlite3.Row
         return [dict(row) for row in conn.execute(sql, params)]
+
+
+def imdb_url(movie: dict) -> str:
+    """Link halaman film di IMDb (pencarian judul + tahun). Dipakai UI dan konteks LLM."""
+    year = int(movie["year"]) if movie.get("year") else ""
+    return f"https://www.imdb.com/find/?q={quote_plus(str(movie['Series_Title']).title())}+{year}"
 
 
 def by_ids(ids) -> list[dict]:
@@ -117,10 +127,41 @@ def to_json(records: list[dict]) -> str:
     return json.dumps(records, ensure_ascii=False, default=str)
 
 
+def by_titles(titles: list[str]) -> list[dict]:
+    """Cari film dari daftar judul (case-insensitive, potongan judul juga cocok).
+
+    Dipakai kalau user minta menampilkan film yang sudah disebut di percakapan.
+    Tahun pada judul dibuang dulu supaya "Tumbbad (2018)" tetap ketemu "tumbbad".
+    """
+    found = {}
+    for title in titles:
+        title = re.sub(r"\(\s*(19|20)\d{2}\s*\)", " ", title)  # buang "(2018)"
+        title = re.sub(r"\b(19|20)\d{2}\b", " ", title)  # buang tahun berdiri sendiri
+        title = title.strip(" \t\"'.,;:-–—()[]")
+        if len(title) < 3:
+            continue
+        exact = query(
+            f"SELECT {FIELDS} FROM imdb_movies WHERE LOWER(Series_Title) = LOWER(?)", (title,)
+        )
+        # kalau tidak ada yang persis, baru pakai potongan judul (dibatasi biar tidak melebar)
+        rows = exact or query(
+            f"SELECT {FIELDS} FROM imdb_movies WHERE LOWER(Series_Title) LIKE LOWER(?) LIMIT 5",
+            (f"%{title}%",),
+        )
+        for row in rows:
+            found.setdefault(row["id"], row)
+    return list(found.values())
+
+
 def for_llm(movies: list[dict]) -> str:
-    """JSON ringkas film untuk konteks LLM (Poster_Link dan PC tidak ikut)."""
-    return json.dumps([{key: movie.get(key) for key in LLM_FIELDS} for movie in movies],
-                      ensure_ascii=False, default=str)
+    """JSON ringkas film untuk konteks LLM (tanpa poster/PC, overview dipotong)."""
+    ringkas = []
+    for movie in movies:
+        item = {key: movie.get(key) for key in LLM_FIELDS}
+        item["link"] = imdb_url(movie)
+        item["overview"] = str(movie.get("overview") or "")[:OVERVIEW_CHARS]
+        ringkas.append(item)
+    return json.dumps(ringkas, ensure_ascii=False, default=str)
 
 
 def schema_text() -> str:
