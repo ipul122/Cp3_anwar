@@ -177,12 +177,17 @@ def ask(question):
     """Kirim pertanyaan ke agent (dengan indikator loading) lalu simpan jawabannya."""
     if limit_reached():  # sudah lewat batas biaya sesi
         return
+    awal_log = len(st.session_state.trace["logs"])
     with st.spinner("Agent sedang memproses... (lihat flow-nya di console log)"):
         answer, state, _ = workflow.run(question, st.session_state.chat,
                                         st.session_state.ratings, st.session_state.trace)
+    # tool apa saja yang dipakai turn ini -> untuk label bukti di chat
+    sumber = sorted({e.get("name") for e in st.session_state.trace["logs"][awal_log:]
+                     if e["event"] == "tool" and e.get("name")})
     st.session_state.chat.append({"role": "user", "content": question})
     st.session_state.chat.append({"role": "assistant", "content": answer,
                                   "context": state["context"],
+                                  "sources": sumber,
                                   "movies": (state.get("movies") or [])[:3],
                                   "blocked": state.get("blocked", "")})
     if state.get("movies"):  # film hasil rekomendasi agent langsung bisa dirating
@@ -263,7 +268,14 @@ def chat_panel():
                     # film di jawaban chatbot bisa langsung dirating
                     chat_movies(message["movies"], position)
                 if message["role"] == "assistant" and message.get("context"):
-                    with st.expander("Data dari vector database (Qdrant)"):
+                    sumber = message.get("sources") or []
+                    if "search_movies" in sumber:
+                        label = "Data dari vector database (Qdrant)"
+                    elif sumber:
+                        label = f"Konteks tool: {', '.join(sumber)}"
+                    else:
+                        label = "Konteks percakapan (tanpa tool)"
+                    with st.expander(label):
                         for item in message["context"]:
                             st.write(item[:600])
 

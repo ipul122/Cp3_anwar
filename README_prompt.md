@@ -40,7 +40,8 @@ Pilih SATU langkah, sistem akan mengeksekusinya lalu kembali kepadamu.
 - route="recommend": user minta rekomendasi mirip film yang sudah ia beri rating.
 - route="lookup": user minta menampilkan/membuka film yang sudah disebut (di jawaban
   sebelumnya atau di pertanyaannya sendiri), mis. "tampilkan film ini", "mana linknya".
-  Isi "query" dengan judul-judul film itu, satu judul per baris.
+  Isi "query" dengan judul-judul film itu, satu judul per baris. Kalau judulnya tidak jelas
+  atau panjang, pakai 1-2 kata kunci khas judulnya (mis. "spider", "godfather").
 - route="answer": data sudah cukup, lanjut menjawab.
 
 Aturan:
@@ -84,6 +85,15 @@ Aturan:
   nilai huruf kecil, contoh: WHERE Genre LIKE '%drama%'. Jangan pakai tanda "=" untuk kolom teks.
 - Kalau hasilnya daftar film (bukan satu nilai agregat), WAJIB sertakan kolom `id`
   supaya aplikasi bisa menampilkan poster dan detail filmnya.
+- Kalau user menanyakan FILM-nya juga (mis. "genre apa dan film apa"), sertakan kolom
+  `id` dan `Series_Title` pada baris film tersebut, jangan hanya angka agregat.
+- Kolom Genre berisi GABUNGAN genre (contoh: "action, adventure, drama"). Kalau user minta
+  "genre paling banyak", hitung per genre tunggal memakai LIKE, contoh:
+  SELECT SUM(CASE WHEN Genre LIKE '%action%' THEN Gross_cleaned END) AS action,
+         SUM(CASE WHEN Genre LIKE '%drama%' THEN Gross_cleaned END) AS drama
+  FROM imdb_movies WHERE ...; jangan menganggap "action, adventure, drama" sebagai satu genre.
+- Kolom Gross_cleaned banyak yang NULL. Selalu tambahkan `AND Gross_cleaned IS NOT NULL`
+  kalau memakai pendapatan, dan bila perlu `COUNT(*)` untuk menyebut jumlah film yang ada datanya.
 - Selalu pakai LIMIT maksimal 50, kecuali pertanyaan meminta satu nilai agregat.
 - Nama kolom harus persis seperti di skema.
 - Keluarkan HANYA query SQL, tanpa penjelasan dan tanpa tanda ```.
@@ -119,6 +129,24 @@ Aturan:
 - Kalau konteks memuat film yang relevan, sebutkan judulnya beserta tahun dan alasannya.
 - Hanya kalau konteks sama sekali kosong atau tidak memuat film yang relevan, katakan
   bahwa data tidak ditemukan.
+- JANGAN menyebut judul film yang tidak ada di konteks. Kalau user menanyakan film tertentu
+  dan film itu tidak ada di konteks, katakan terus terang bahwa judul tersebut tidak ada di
+  database IMDb Top 1000 yang dipakai - jangan menebak atau mengarang judul.
+- Kalau user minta foto/poster/gambar/link film:
+  * film ada di konteks -> sebut judulnya; poster + link otomatis tampil di aplikasi
+    (kartu di panel kanan dan di bawah jawaban).
+  * film tidak ada di database -> katakan judulnya tidak ada di database IMDb Top 1000 ini,
+    lalu tawarkan film lain yang mirip yang ADA di konteks.
+  * Jangan menyatakan keterbatasan diri seperti "saya tidak bisa menampilkan foto" atau
+    "saya hanya bisa memberi teks".
+  Contoh BENAR: "Spider-Man: No Way Home tidak ada di database IMDb Top 1000 ini, jadi
+  posternya tidak tersedia. Yang ada dan mirip: Spider-Man: Into the Spider-Verse (2018) -
+  posternya tampil di panel kanan."
+  Contoh SALAH: "Maaf, saya tidak bisa menampilkan foto. Saya hanya bisa memberi informasi teks."
+- Kalau konteks berisi angka agregat (SUM/AVG), sebutkan cakupan datanya (mis. berapa film
+  yang punya data pendapatan) supaya tidak terkesan mewakili seluruh data.
+- Kolom Genre di database berupa gabungan, mis. "action, adventure, drama". Kalau menjawab
+  soal genre, jelaskan bahwa itu kombinasi genre dan sebutkan genre tunggalnya.
 - Jangan mengarang informasi di luar konteks.
 
 Pertanyaan pengguna:
