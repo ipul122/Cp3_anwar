@@ -51,9 +51,23 @@ terbaru (`autoscroll`).
    - **acak** saat sesi baru (belum ada rating),
    - **hasil jawaban chatbot** (film yang baru disebut agent) — caption card
      menampilkan pertanyaan yang menghasilkannya,
-   - **tetangga terdekat PCA** begitu ada rating: titik tengah `PC1, PC2` film yang
-     dirating (dibobot nilai rating) -> `K_RECO` tetangga terdekat (jarak euclidean),
-     film yang sudah dirating dibuang.
+   - **tetangga terdekat PCA** begitu ada rating: **titik selera** = rata-rata
+     `PC1, PC2` film yang **disukai** (rating >= 6, dibobot nilai rating) yang
+     **digeser menjauh** dari film yang **tidak disukai** (rating <= 5). Makin rendah
+     ratingnya makin kuat dorongan tolaknya (rating 5 = 20%, rating 1 = 100% dari
+     `PUSH_AWAY = 0.5`). Jadi film yang dibenci **menolak** rekomendasi, bukan
+     menariknya. Setelah itu diambil `K_RECO` tetangga terdekat (jarak euclidean),
+     dan film yang sudah dirating dibuang.
+
+   Contoh nyata (suka: The Dark Knight, LOTR: Return of the King, Inception = 10;
+   benci: Psycho):
+
+   | Rating Psycho | Jarak pusat selera ke Psycho | Tetangga terdekat |
+   | --- | --- | --- |
+   | tidak dirating | 0.416 | Batman Begins, 2001: A Space Odyssey |
+   | 8 | **0.329** (tertarik) | - |
+   | 5 | 0.458 (ditolak pelan) | - |
+   | 1 | **0.624** (ditolak kuat) | Star Wars, The Avengers, Guardians of the Galaxy, Avatar |
 
 **Baris bawah** (`st.columns([2.2, 1.2])`):
 

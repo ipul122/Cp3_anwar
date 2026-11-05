@@ -45,6 +45,24 @@ def test_graph():
     assert trace["prompt_tokens"] == 0 and trace["cost"] == 0.0
 
 
+def test_rating_center():
+    """Rating bagus menarik titik selera, rating jelek justru mendorongnya menjauh."""
+    pool = data.random_movies(10)
+    liked = {pool[0]["id"]: 9}
+    disliked = pool[1]
+
+    def distance(center):
+        return ((center[0] - disliked["PC1"]) ** 2 + (center[1] - disliked["PC2"]) ** 2) ** 0.5
+
+    only_liked = data.rating_center(liked)
+    mild = data.rating_center({**liked, disliked["id"]: 5})
+    hated = data.rating_center({**liked, disliked["id"]: 1})
+    assert only_liked and mild and hated
+    assert distance(hated) > distance(only_liked), "film yang tidak disukai harus mendorong pusat menjauh"
+    assert distance(hated) > distance(mild), "rating 1 harus mendorong lebih kuat daripada rating 5"
+    assert data.rating_center({disliked["id"]: 2}) is not None, "semua jelek tetap harus menghasilkan titik"
+
+
 def test_rating_note():
     """Agent harus tahu film apa saja yang sudah dirating user."""
     movies = data.random_movies(2)

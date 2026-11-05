@@ -15,6 +15,8 @@ FIELDS = (
 # Kolom yang perlu dikirim ke LLM sebagai konteks (tanpa poster/PC agar hemat token).
 LLM_FIELDS = ("id", "Series_Title", "year", "genre", "director", "rating", "overview")
 
+PUSH_AWAY = 0.5  # seberapa kuat film yang tidak disukai mendorong titik selera
+
 
 def query(sql: str, params=()) -> list[dict]:
     """Jalankan SQL (read-only) dan kembalikan list of dict."""
@@ -42,10 +44,22 @@ def random_movies(limit: int = 3, exclude=()) -> list[dict]:
     return query(sql, params + [limit])
 
 
-def rating_center(ratings: dict) -> tuple[float, float] | None:
-    """Titik tengah (PC1, PC2) dari film yang diberi rating, dibobot nilai ratingnya.
+def _primary_mean(column: str) -> float:
+    """Rata-rata sebuah kolom PC di seluruh katalog (dipakai kalau belum ada film disukai)."""
+    return query(f"SELECT AVG({column}) AS mean FROM imdb_movies")[0]["mean"]
 
-    Film dengan rating 10 menarik titik lebih kuat daripada rating 3.
+
+def rating_center(ratings: dict) -> tuple[float, float] | None:
+    """Titik selera user di ruang PCA 2D (PC1, PC2).
+
+    Perlakukan rating bagus dan jelek berbeda:
+
+    - rating >= 6 (disukai)  : menarik titik selera, bobotnya nilai rating.
+    - rating <= 5 (tidak suka): mendorong titik selera ke arah BERLAWANAN; makin
+      rendah ratingnya makin kuat dorongannya (rating 5 = 20%, rating 1 = 100% dari
+      PUSH_AWAY). Jadi film yang dibenci tidak menarik rekomendasi, tapi menolaknya.
+    - belum ada film disukai : mulai dari pusat katalog, lalu didorong menjauh
+      dari film yang tidak disukai.
     """
     if not ratings:
         return None
@@ -54,10 +68,27 @@ def rating_center(ratings: dict) -> tuple[float, float] | None:
     rows = [r for r in rows if r["PC1"] is not None and r["PC2"] is not None]
     if not rows:
         return None
-    total = sum(ratings[r["id"]] for r in rows)
-    pc1 = sum(ratings[r["id"]] * r["PC1"] for r in rows) / total
-    pc2 = sum(ratings[r["id"]] * r["PC2"] for r in rows) / total
-    return pc1, pc2
+
+    liked = [(r, ratings[r["id"]]) for r in rows if ratings[r["id"]] >= 6]
+    disliked = [(r, ratings[r["id"]]) for r in rows if ratings[r["id"]] <= 5]
+
+    if liked:
+        total = sum(weight for _, weight in liked)
+        center = [sum(weight * r["PC1"] for r, weight in liked) / total,
+                  sum(weight * r["PC2"] for r, weight in liked) / total]
+    else:  # semua yang dirating tidak disukai
+        center = [_primary_mean("PC1"), _primary_mean("PC2")]
+
+    if disliked:
+        total = sum(6 - weight for _, weight in disliked)
+        away = [sum((6 - weight) * r["PC1"] for r, weight in disliked) / total,
+                sum((6 - weight) * r["PC2"] for r, weight in disliked) / total]
+        # makin rendah ratingnya makin kuat dorongannya: rating 5 = 20%, rating 1 = 100%
+        push = PUSH_AWAY * total / (len(disliked) * 5)
+        center = [center[0] - push * (away[0] - center[0]),
+                  center[1] - push * (away[1] - center[1])]
+
+    return center[0], center[1]
 
 
 def pca_neighbors(center: tuple[float, float], k: int = 3, exclude=()) -> list[dict]:

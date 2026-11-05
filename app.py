@@ -271,7 +271,8 @@ def pca_panel():
     frame = pd.DataFrame(data.pca_points())
     frame["kelompok"] = "semua film"
     frame.loc[frame["id"].isin(ratings), "kelompok"] = "film yang kamu rating"
-    caption = f"{len(frame)} film di ruang PCA 2D. Beri rating supaya titik selera dan jangkauan muncul."
+    caption = (f"{len(frame)} film di ruang PCA 2D. Beri rating supaya titik selera muncul: "
+               "film yang disukai (>=6) menarik titik, film yang tidak disukai (<=5) menolaknya.")
 
     center = data.rating_center(ratings)
     if center:
