@@ -32,9 +32,14 @@ def by_ids(ids) -> list[dict]:
     return [rows[i] for i in ids if i in rows]
 
 
-def random_movies(limit: int = 3) -> list[dict]:
-    """Film acak, dipakai sebagai rekomendasi awal sebelum user memberi rating."""
-    return query(f"SELECT {FIELDS} FROM imdb_movies ORDER BY RANDOM() LIMIT ?", (limit,))
+def random_movies(limit: int = 3, exclude=()) -> list[dict]:
+    """Film acak (rekomendasi awal & card acak), boleh membuang film yang sudah dirating."""
+    sql = f"SELECT {FIELDS} FROM imdb_movies"
+    params = list(exclude)
+    if params:
+        sql += f" WHERE id NOT IN ({','.join('?' * len(params))})"
+    sql += " ORDER BY RANDOM() LIMIT ?"
+    return query(sql, params + [limit])
 
 
 def rating_center(ratings: dict) -> tuple[float, float] | None:

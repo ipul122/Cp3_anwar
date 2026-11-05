@@ -40,9 +40,14 @@ terbaru (`autoscroll`).
    ke IMDb) pada jawaban yang menyebut film, dan expander "Data dari vector database
    (Qdrant)" sebagai bukti jawaban berasal dari RAG. Ada indikator loading saat agent
    memproses.
-3. **Kanan - Card rekomendasi**: `K_RECO = 5` film, tiap card menampilkan **poster +
-   judul (link IMDb) + genre + rating IMDb**, slider rating 1-10, dan tombol simpan.
-   Sumber card:
+3. **Kanan - Card rekomendasi + Card acak**: dua bagian terpisah.
+   - **Card rekomendasi** (`K_RECO = 5`): tiap card menampilkan **poster + judul
+     (link IMDb) + genre + rating IMDb**, slider rating 1-10, tombol simpan.
+   - **Card acak** (`K_RANDOM = 3`): film yang belum dirating untuk eksplorasi,
+     bisa diganti dengan tombol **Acak lagi**. Card yang sudah dirating otomatis
+     hilang dari daftar acak.
+
+   Sumber card rekomendasi:
    - **acak** saat sesi baru (belum ada rating),
    - **hasil jawaban chatbot** (film yang baru disebut agent) — caption card
      menampilkan pertanyaan yang menghasilkannya,

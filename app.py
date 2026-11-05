@@ -23,10 +23,12 @@ st.set_page_config(page_title="IMDb Movie Assistant", page_icon="🎬", layout="
 
 # Tinggi panel dibuat tetap supaya halaman tidak makin panjang saat chat/rating
 # bertambah - yang scroll hanya bagian dalam panelnya.
-K_RECO = 5  # jumlah rekomendasi
+K_RECO = 5  # jumlah card rekomendasi
+K_RANDOM = 3  # jumlah card acak
 LOG_HEIGHT = 520
 CHAT_HEIGHT = 520
-CARDS_HEIGHT = 460
+CARDS_HEIGHT = 330
+RANDOM_HEIGHT = 200
 PCA_HEIGHT = 400
 RATED_HEIGHT = 400
 
@@ -103,6 +105,20 @@ def setup():
     st.session_state.setdefault("cards", data.random_movies(K_RECO))
     st.session_state.setdefault("card_source", "acak")
     st.session_state.setdefault("card_query", "")
+    if "random_cards" not in st.session_state:  # card acak tidak boleh kembar dengan card rekomendasi
+        refresh_random()
+
+
+def _unrated(movies) -> list[dict]:
+    """Buang film yang sudah dirating user."""
+    ratings = st.session_state.ratings
+    return [movie for movie in movies if movie["id"] not in ratings]
+
+
+def refresh_random():
+    """Card acak untuk eksplorasi: belum dirating dan tidak kembar dengan card rekomendasi."""
+    exclude = set(st.session_state.ratings) | {m["id"] for m in st.session_state.cards}
+    st.session_state.random_cards = data.random_movies(K_RANDOM, exclude=exclude)
 
 
 def refresh_cards():
@@ -124,6 +140,8 @@ def save_rating(movie, score):
     workflow.log_event(st.session_state.trace, "rating", agent="user",
                        detail=f"{movie['Series_Title']} = {score}/10")
     refresh_cards()
+    if len(_unrated(st.session_state.random_cards)) < K_RANDOM:  # isi ulang card acak
+        refresh_random()
     st.rerun()
 
 
@@ -211,9 +229,10 @@ def chat_panel():
 
 
 def card_panel():
-    """Kanan atas: card rekomendasi yang bisa dirating (k = K_RECO)."""
+    """Kanan atas: card rekomendasi (PCA/chatbot) + card acak untuk eksplorasi."""
     ratings = st.session_state.ratings
     source = st.session_state.card_source
+
     st.subheader("Card rekomendasi")
     if source == "chat":
         st.caption(f"dari jawaban chatbot · {st.session_state.card_query}")
@@ -223,7 +242,7 @@ def card_panel():
         st.caption(f"{K_RECO} film acak (belum ada rating user)")
     with st.container(height=CARDS_HEIGHT, border=False):
         for movie in st.session_state.cards:
-            movie_card(movie, "card")
+            movie_card(movie, "reco")
 
     # Tombol ini baru berguna kalau card sekarang berasal dari chatbot:
     # sekali klik untuk kembali ke rekomendasi hasil PCA dari rating user.
@@ -232,6 +251,18 @@ def card_panel():
         if st.button(label, use_container_width=True):
             refresh_cards()
             st.rerun()
+
+    st.subheader("Card acak")
+    st.caption("film yang belum kamu rating (untuk eksplorasi)")
+    fresh = _unrated(st.session_state.random_cards)
+    with st.container(height=RANDOM_HEIGHT, border=False):
+        if not fresh:
+            st.caption("Semua card acak sudah dirating. Klik tombol Acak lagi.")
+        for movie in fresh:
+            movie_card(movie, "random")
+    if st.button("Acak lagi", use_container_width=True):
+        refresh_random()
+        st.rerun()
 
 
 def pca_panel():
