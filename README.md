@@ -122,7 +122,7 @@ terbaru (`autoscroll`).
 
 ## Batas biaya per sesi
 
-- `LIMIT_USD` (default `0.03`, bisa diubah lewat env) = batas biaya sesi Streamlit.
+- `LIMIT_USD` (default `0.001`, bisa diubah lewat env) = batas biaya sesi Streamlit.
 - Kalau total biaya sesi sudah lewat: gambar **`data/limit_token.jpg`** muncul di
   **akhir percakapan** (bukan di atas), kolom input **dimatikan**
   (`st.chat_input(disabled=True)`), dan `ask()` berhenti sebelum memanggil agent.

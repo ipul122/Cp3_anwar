@@ -49,7 +49,7 @@ menulis jawaban final dari konteks yang terkumpul.</p>
   <tr><td>Vector DB</td><td>Qdrant Cloud, collection <code>imdb_movies</code> (1000 vektor, cosine)</td></tr>
   <tr><td>Prompt &amp; tracing</td><td>Langfuse (SDK v5, OpenTelemetry), prompt label <code>production</code></td></tr>
   <tr><td>Ukuran kode</td><td>app.py 391 &middot; workflow.py 330 &middot; data.py 182 &middot; vectorstore.py 85 &middot; config.py 61 &middot; tools.py 58 &middot; prompts.py 35 baris</td></tr>
-  <tr><td>Konstanta penting</td><td>K_RECO 5 &middot; K_RANDOM 3 &middot; RECENT_RATINGS 7 &middot; PUSH_AWAY 0.5 &middot; MAX_STEPS 6 &middot; MAX_CARDS 10 &middot; LIMIT_USD 0.03</td></tr>
+  <tr><td>Konstanta penting</td><td>K_RECO 5 &middot; K_RANDOM 3 &middot; RECENT_RATINGS 7 &middot; PUSH_AWAY 0.5 &middot; MAX_STEPS 6 &middot; MAX_CARDS 10 &middot; LIMIT_USD 0.001</td></tr>
 </table>
 
 <h2>1. Arsitektur multi-agent</h2>
@@ -319,7 +319,7 @@ yang bergulir hanya isi panelnya, dan chat memakai <code>autoscroll</code>.</p>
   <tr><td><code>data/jailbreak.jpg</code></td><td>Pesan TERAKHIR ditolak guardrail (<code>state["blocked"]</code> terisi)</td>
       <td>Gambar tampil di akhir percakapan (bukan di awal, bukan menempel di pesan lama) + caption
           "Percobaan jailbreak terdeteksi"</td></tr>
-  <tr><td><code>data/limit_token.jpg</code></td><td>Total biaya sesi &ge; <code>LIMIT_USD</code> (default 0.03 USD)</td>
+  <tr><td><code>data/limit_token.jpg</code></td><td>Total biaya sesi &ge; <code>LIMIT_USD</code> (default 0.001 USD)</td>
       <td>Gambar tampil di akhir percakapan, <code>st.chat_input(disabled=True)</code>, <code>ask()</code> berhenti
           sebelum memanggil agent. Rating film tetap bisa. Refresh halaman = sesi baru (biaya 0) sehingga
           chatbot aktif lagi.</td></tr>

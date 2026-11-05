@@ -26,7 +26,7 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "imdb_movies")
 
 # Batas biaya (USD) per sesi Streamlit. Kalau tercapai, chatbot berhenti dulu
 # sampai halaman di-refresh (sesi baru). Bisa diubah lewat env.
-LIMIT_USD = float(os.getenv("LIMIT_USD", "0.03"))
+LIMIT_USD = float(os.getenv("LIMIT_USD", "0.001"))
 
 # Nama prompt di Langfuse (semuanya bisa ditimpa lewat env).
 PROMPT_LABEL = os.getenv("LANGFUSE_PROMPT_LABEL", "production")
