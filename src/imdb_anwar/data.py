@@ -134,26 +134,32 @@ def to_json(records: list[dict]) -> str:
 
 
 def by_titles(titles: list[str]) -> list[dict]:
-    """Cari film dari daftar judul (case-insensitive, potongan judul juga cocok).
+    """Cari film dari daftar judul (case-insensitive).
 
-    Dipakai kalau user minta menampilkan film yang sudah disebut di percakapan.
-    Tahun pada judul dibuang dulu supaya "Tumbbad (2018)" tetap ketemu "tumbbad".
+    - Tahun pada judul dibuang dulu, jadi "Tumbbad (2018)" tetap ketemu "tumbbad".
+    - Kecocokan PERSIS diutamakan. Potongan judul (LIKE) hanya dipakai kalau tidak ada
+      yang persis DAN katanya >= 4 huruf - supaya judul pendek seperti "up", "pk", "her"
+      tidak menarik film lain yang kebetulan mengandung huruf itu.
     """
     found = {}
     for title in titles:
         title = re.sub(r"\(\s*(19|20)\d{2}\s*\)", " ", title)  # buang "(2018)"
         title = re.sub(r"\b(19|20)\d{2}\b", " ", title)  # buang tahun berdiri sendiri
         title = title.strip(" \t\"'.,;:-–—()[]")
-        if len(title) < 3:
+        if len(title) < 2:
             continue
         exact = query(
             f"SELECT {FIELDS} FROM imdb_movies WHERE LOWER(Series_Title) = LOWER(?)", (title,)
         )
-        # kalau tidak ada yang persis, baru pakai potongan judul (dibatasi biar tidak melebar)
-        rows = exact or query(
-            f"SELECT {FIELDS} FROM imdb_movies WHERE LOWER(Series_Title) LIKE LOWER(?) LIMIT 5",
-            (f"%{title}%",),
-        )
+        if exact:
+            rows = exact
+        elif len(title) >= 4:
+            rows = query(
+                f"SELECT {FIELDS} FROM imdb_movies WHERE LOWER(Series_Title) LIKE LOWER(?) LIMIT 5",
+                (f"%{title}%",),
+            )
+        else:
+            rows = []
         for row in rows:
             found.setdefault(row["id"], row)
     return list(found.values())
