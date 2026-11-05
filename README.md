@@ -24,6 +24,11 @@ Start -> Supervisor -> (Retrieve | Analytics | Recommend) -> Supervisor -> Answe
 
 ## Fitur Streamlit (3 panel)
 
+Tinggi ketiga panel dibuat tetap: halaman tidak makin panjang saat chat atau rating
+bertambah — yang scroll hanya isi panelnya masing-masing
+(`LOG_HEIGHT`, `CHAT_HEIGHT`, `CARDS_HEIGHT`, `RATED_HEIGHT` di `app.py`).
+Daftar chat juga otomatis turun ke pesan terbaru (`autoscroll`).
+
 1. **Kiri - console log interaktif**: token, biaya (USD), dan log flow yang menyebut
    **siapa yang dipanggil** (`route agent=supervisor`, `tool agent=retrieve-agent
    name=search_movies`, `llm name=answer tokens=... cost=...`, `warn`, `final`),

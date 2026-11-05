@@ -17,6 +17,13 @@ from imdb_anwar import config, data, workflow  # noqa: E402
 
 st.set_page_config(page_title="IMDb Movie Assistant", page_icon="🎬", layout="wide")
 
+# Tinggi panel dibuat tetap supaya halaman tidak makin panjang saat chat/rating
+# bertambah - yang scroll hanya bagian dalam panelnya (kiri, tengah, kanan).
+LOG_HEIGHT = 520
+CHAT_HEIGHT = 520
+CARDS_HEIGHT = 340
+RATED_HEIGHT = 160
+
 
 def setup():
     """Siapkan state sesi: rating user, log agent, chat, dan card rekomendasi."""
@@ -85,21 +92,28 @@ def console_panel():
               delta_color="off")
     st.metric("Biaya (USD)", f"${trace['cost']:.6f}")
     st.caption(f"Log interaktif · sesi {trace['session_id']}")
-    with st.container(height=540, border=True):
+    with st.container(height=LOG_HEIGHT, border=True):
         for entry in reversed(trace["logs"][-80:]):
             st.markdown(console_line(entry))
     st.caption(f"LLM: {config.LLM_MODEL}  \nRerank: {config.RERANK_MODEL}")
 
 
 def chat_panel():
-    """Tengah: percakapan dengan agent + bukti data dari vector database."""
-    for message in st.session_state.chat:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
-            if message["role"] == "assistant" and message.get("context"):
-                with st.expander("Data dari vector database (Qdrant)"):
-                    for item in message["context"]:
-                        st.write(item[:600])
+    """Tengah: percakapan dengan agent + bukti data dari vector database.
+
+    Pesan chat dibungkus container bertinggi tetap supaya halaman tidak makin
+    panjang; yang scroll hanya daftar pesannya (dan otomatis turun ke pesan baru).
+    """
+    with st.container(height=CHAT_HEIGHT, border=False, autoscroll=True):
+        if not st.session_state.chat:
+            st.caption("Mulai dengan bertanya, misal: \"rekomendasikan film perang dunia kedua\".")
+        for message in st.session_state.chat:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+                if message["role"] == "assistant" and message.get("context"):
+                    with st.expander("Data dari vector database (Qdrant)"):
+                        for item in message["context"]:
+                            st.write(item[:600])
     question = st.chat_input("Tanya soal film IMDb...")
     if question:
         ask(question)
@@ -112,17 +126,19 @@ def card_panel():
     st.subheader("Card rekomendasi")
     st.caption("acak dulu (belum ada rating)" if not ratings
                else f"mengikuti {len(ratings)} rating kamu lewat PCA")
-    for movie in st.session_state.cards:
-        movie_card(movie, "card")
+    with st.container(height=CARDS_HEIGHT, border=False):
+        for movie in st.session_state.cards:
+            movie_card(movie, "card")
     if st.button("Segarkan dari PCA", use_container_width=True):
         refresh_cards()
         st.rerun()
 
     st.subheader("Daftar film yang dirating user 1-10")
-    if not ratings:
-        st.caption("Belum ada. Beri rating dari card di atas atau dari rekomendasi chatbot.")
-    for movie_id, score in ratings.items():
-        st.write(f"**{score}/10** · {st.session_state.titles.get(movie_id, movie_id)}")
+    with st.container(height=RATED_HEIGHT, border=False):
+        if not ratings:
+            st.caption("Belum ada. Beri rating dari card di atas atau dari rekomendasi chatbot.")
+        for movie_id, score in ratings.items():
+            st.write(f"**{score}/10** · {st.session_state.titles.get(movie_id, movie_id)}")
     if ratings and st.button("Hapus semua rating", use_container_width=True):
         st.session_state.ratings = {}
         st.session_state.titles = {}
