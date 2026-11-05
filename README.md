@@ -95,6 +95,26 @@ Setiap percakapan dikirim ke Langfuse (SDK v5, OpenTelemetry) dengan
   poster diambil sekali per URL (`@st.cache_data`), dan kalau gagal ditampilkan
   tulisan "poster tidak tersedia" — bukan gambar rusak.
 
+## Kualitas rekomendasi PCA (hasil `poetry run python eval_pca.py`)
+
+Diukur pada 1000 film di database.
+
+| Ukuran | PCA 2D (dipakai sekarang) | Embedding penuh 1536d | Acak / baseline |
+| --- | --- | --- | --- |
+| Genre sama di 5 tetangga terdekat | 0.815 | 0.945 | 0.658 |
+| RMSE prediksi rating (k=10) | 0.292 | 0.266 | 0.275 (tebak rata-rata global) |
+
+Temuan:
+
+- PCA 2D hanya menyimpan **6.9%** variance dari embedding 1536 dimensi (PC1 3.6%, PC2 3.3%).
+- PC1 berkorelasi dengan tahun rilis (-0.48), PC2 dengan jumlah vote (-0.47); korelasi ke
+  rating hampir 0. Jadi PC1/PC2 lebih banyak menyimpan "era" dan "popularitas" daripada selera.
+- **Cukup baik untuk kemiripan tema** (81.5% tetangganya berbagi genre, +15.7 poin di atas acak).
+- **Lemah untuk memprediksi selera**: RMSE 0.292 justru lebih buruk dari sekadar menebak
+  rata-rata global (0.275). Penyebabnya informasi yang hilang saat diproyeksikan ke 2D.
+- Upgrade yang disarankan (opsional, tanpa mengubah alur): cari tetangga di ruang
+  embedding penuh lewat Qdrant (0.945 / 0.266), dan pakai PC1/PC2 hanya untuk visualisasi.
+
 ## Setup
 
 ```bash
@@ -117,5 +137,6 @@ src/imdb_anwar/tools.py         # tool agent: search_movies, movie_stats
 src/imdb_anwar/workflow.py      # graph LangGraph + log flow agent/tool + guardrail
 sync_prompts.py                 # kirim ulang prompt README_prompt.md ke Langfuse
 fix_posters.py                  # perbaiki Poster_Link di database dari CSV asli
+eval_pca.py                     # ukur kualitas rekomendasi PCA 2D
 check.py                        # cek cepat tanpa panggilan LLM
 ```

@@ -222,6 +222,18 @@ def _build_graph():
 GRAPH = _build_graph()
 
 
+def _rating_note(ratings: dict) -> str:
+    """Ringkasan rating user supaya agent tahu film apa saja yang sudah dinilai."""
+    if not ratings:
+        return "Rating user: belum ada film yang diberi rating."
+    movies = data.by_ids(list(ratings))
+    items = "; ".join(
+        f"{m['Series_Title']} ({int(m['year']) if m['year'] else '?'}) = {ratings[m['id']]}/10"
+        for m in movies
+    )
+    return f"Rating user ({len(movies)} film): {items}"
+
+
 def run(question: str, history=None, ratings=None, trace=None) -> tuple[str, dict, dict]:
     """Jalankan agent untuk satu pertanyaan. Mengembalikan (jawaban, state, trace)."""
     trace = trace if trace is not None else new_trace()
@@ -229,7 +241,7 @@ def run(question: str, history=None, ratings=None, trace=None) -> tuple[str, dic
         "question": question,
         "history": history or [],
         "ratings": ratings or {},
-        "context": [],
+        "context": [_rating_note(ratings or {})],
         "route": "",
         "query": "",
         "steps": 0,

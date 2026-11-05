@@ -8,6 +8,7 @@ berikutnya dihitung dari rating itu memakai kedekatan PCA.
 import sys
 import uuid
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import httpx
 import streamlit as st
@@ -25,6 +26,28 @@ CHAT_HEIGHT = 520
 CARDS_HEIGHT = 430
 RATED_HEIGHT = 150
 
+# Warna badge di console log supaya alurnya mudah dibaca:
+# user biru, supervisor violet, tool oranye, hasil tool abu-abu, jawaban hijau,
+# guardrail/error merah.
+LOG_COLORS = {
+    "user": "blue",
+    "rating": "blue",
+    "route": "violet",
+    "llm": "green",
+    "tool": "orange",
+    "tool_result": "gray",
+    "final": "green",
+    "warn": "red",
+    "error": "red",
+}
+
+
+def log_color(entry) -> str:
+    """Warna badge; panggilan LLM milik supervisor dibedakan dari answer."""
+    if entry["event"] == "llm" and entry.get("name") == "supervisor":
+        return "violet"
+    return LOG_COLORS.get(entry["event"], "gray")
+
 
 @st.cache_data(show_spinner=False, ttl=86400)
 def poster_bytes(url: str) -> bytes | None:
@@ -38,12 +61,31 @@ def poster_bytes(url: str) -> bytes | None:
         return None
 
 
-def show_poster(movie, width: int = 96):
-    """Tampilkan poster film. Poster_Link di database cuma 67px, jadi diambil versi 300px."""
+def imdb_url(movie) -> str:
+    """Link halaman film di IMDb (pakai pencarian judul + tahun)."""
+    year = int(movie["year"]) if movie.get("year") else ""
+    return f"https://www.imdb.com/find/?q={quote_plus(str(movie['Series_Title']).title())}+{year}"
+
+
+def poster_url(movie) -> str | None:
+    """Poster ukuran 300px. Poster_Link di database cuma 67px."""
     link = str(movie.get("Poster_Link") or "")
-    image = poster_bytes(link.split("._V1")[0] + "._V1_SX300.jpg") if link.startswith("http") else None
-    if image:
-        st.image(image, width=width)
+    return link.split("._V1")[0] + "._V1_SX300.jpg" if link.startswith("http") else None
+
+
+def show_poster(movie, width: int = 104):
+    """Poster yang bisa diklik langsung ke halaman IMDb film itu.
+
+    Gambar diambil sekali per URL (di-cache) untuk memastikan URL-nya hidup;
+    sekitar 1 dari 6 URL di dataset asli sudah mati, jadi perlu dicek dulu.
+    """
+    url = poster_url(movie)
+    if url and poster_bytes(url):
+        st.markdown(
+            f'<a href="{imdb_url(movie)}" target="_blank">'
+            f'<img src="{url}" width="{width}" alt="poster"></a>',
+            unsafe_allow_html=True,
+        )
     else:
         st.caption("🎬 poster tidak tersedia")
 
@@ -55,6 +97,7 @@ def setup():
     st.session_state.setdefault("trace", workflow.new_trace(f"streamlit-{uuid.uuid4().hex[:8]}"))
     st.session_state.setdefault("chat", [])
     st.session_state.setdefault("cards", data.random_movies(3))
+    st.session_state.setdefault("card_source", "acak")
 
 
 def refresh_cards():
@@ -62,8 +105,10 @@ def refresh_cards():
     ratings = st.session_state.ratings
     if not ratings:
         st.session_state.cards = data.random_movies(3)
+        st.session_state.card_source = "acak"
     else:
         st.session_state.cards = data.pca_neighbors(data.rating_center(ratings), k=3, exclude=ratings)
+        st.session_state.card_source = "pca"
 
 
 def save_rating(movie, score):
@@ -87,6 +132,7 @@ def ask(question):
                                   "movies": (state.get("movies") or [])[:3]})
     if state.get("movies"):  # film hasil rekomendasi agent langsung bisa dirating
         st.session_state.cards = state["movies"]
+        st.session_state.card_source = "chat"
 
 
 def movie_card(movie, prefix):
@@ -97,7 +143,7 @@ def movie_card(movie, prefix):
             show_poster(movie, width=104)
         with info:
             year = int(movie["year"]) if movie["year"] else "?"
-            st.markdown(f"**{str(movie['Series_Title']).title()}** ({year})")
+            st.markdown(f"**[{str(movie['Series_Title']).title()}]({imdb_url(movie)})** ({year})")
             st.caption(f"{movie['genre']} · ⭐ {movie['rating']}")
             st.write(f"{str(movie['overview'])[:110]}…")
         score = st.slider("Rating (1-10)", 1, 10, 7, key=f"slider_{prefix}_{movie['id']}")
@@ -106,10 +152,11 @@ def movie_card(movie, prefix):
 
 
 def console_line(entry):
-    """Satu baris console log: event + siapa yang dipanggil + detailnya."""
+    """Satu baris console log dengan warna sesuai jenis pemanggilan."""
     fields = " ".join(f"{k}={v}" for k, v in entry.items() if k not in ("event", "detail"))
+    head = f":{log_color(entry)}[**{entry['event']}**] {fields}".rstrip()
     detail = entry.get("detail") or ""
-    return f"`{entry['event']}` {fields}  \n{detail}"
+    return f"{head}  \n{detail}" if detail else head
 
 
 def console_panel():
@@ -145,7 +192,7 @@ def chat_panel():
                     for column, movie in zip(columns, message["movies"]):
                         with column:
                             show_poster(movie, width=84)
-                            st.caption(str(movie["Series_Title"]).title())
+                            st.markdown(f"[{str(movie['Series_Title']).title()}]({imdb_url(movie)})")
                 if message["role"] == "assistant" and message.get("context"):
                     with st.expander("Data dari vector database (Qdrant)"):
                         for item in message["context"]:
@@ -159,15 +206,25 @@ def chat_panel():
 def card_panel():
     """Kanan: card rekomendasi yang bisa dirating + daftar film yang sudah dirating."""
     ratings = st.session_state.ratings
+    source = st.session_state.card_source
     st.subheader("Card rekomendasi")
-    st.caption("acak dulu (belum ada rating)" if not ratings
-               else f"mengikuti {len(ratings)} rating kamu lewat PCA")
+    if source == "chat":
+        st.caption("dari rekomendasi chatbot")
+    elif source == "pca":
+        st.caption(f"mengikuti {len(ratings)} rating kamu lewat PCA")
+    else:
+        st.caption("acak dulu (belum ada rating user)")
     with st.container(height=CARDS_HEIGHT, border=False):
         for movie in st.session_state.cards:
             movie_card(movie, "card")
-    if st.button("Segarkan dari PCA", use_container_width=True):
-        refresh_cards()
-        st.rerun()
+
+    # Tombol ini baru berguna kalau card sekarang berasal dari chatbot:
+    # sekali klik untuk kembali ke rekomendasi hasil PCA dari rating user.
+    if source == "chat":
+        label = f"Pakai rekomendasi PCA ({len(ratings)} rating)" if ratings else "Segarkan card acak"
+        if st.button(label, use_container_width=True):
+            refresh_cards()
+            st.rerun()
 
     st.subheader("Daftar film yang dirating user 1-10")
     with st.container(height=RATED_HEIGHT, border=False):

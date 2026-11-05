@@ -45,6 +45,15 @@ def test_graph():
     assert trace["prompt_tokens"] == 0 and trace["cost"] == 0.0
 
 
+def test_rating_note():
+    """Agent harus tahu film apa saja yang sudah dirating user."""
+    movies = data.random_movies(2)
+    note = workflow._rating_note({movies[0]["id"]: 9})
+    assert movies[0]["Series_Title"] in note, note
+    assert "9/10" in note, note
+    assert "belum ada" in workflow._rating_note({})
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().items()):
         if name.startswith("test_"):
