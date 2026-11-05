@@ -25,7 +25,6 @@ st.set_page_config(page_title="IMDb Movie Assistant", page_icon="🎬", layout="
 # bertambah - yang scroll hanya bagian dalam panelnya.
 K_RECO = 5  # jumlah card rekomendasi
 K_RANDOM = 3  # jumlah card acak
-BAND_LOW, BAND_HIGH = 2.0, 5.0  # card acak diambil pada jarak 2-5x jangkauan rekomendasi
 LOG_HEIGHT = 520
 CHAT_HEIGHT = 520
 CARDS_HEIGHT = 500
@@ -128,22 +127,9 @@ def current_taste():
 
 
 def refresh_random():
-    """Card acak = eksplorasi pada jarak BAND_LOW-BAND_HIGH x jangkauan rekomendasi.
-
-    Jadi bukan film dari ujung katalog yang tidak nyambung: di luar jangkauan
-    rekomendasi, tapi masih satu wilayah dengan pusat selera. Kalau belum ada rating
-    (belum ada pusat selera), dipakai acak murni.
-    """
+    """Card acak untuk eksplorasi: film yang belum dirating, di luar area rekomendasi."""
     exclude = set(st.session_state.ratings) | {m["id"] for m in st.session_state.cards}
-    center, radius, _ = current_taste()
-    cards = []
-    if center:
-        cards = data.band_movies(center, radius, limit=K_RANDOM, exclude=exclude,
-                                 low=BAND_LOW, high=BAND_HIGH)
-    if len(cards) < K_RANDOM:  # belum ada rating atau cincinnya terlalu kosong
-        cards += data.random_movies(K_RANDOM - len(cards),
-                                    exclude=exclude | {m["id"] for m in cards})
-    st.session_state.random_cards = cards
+    st.session_state.random_cards = data.random_movies(K_RANDOM, exclude=exclude)
 
 
 def refresh_cards():
@@ -165,7 +151,8 @@ def save_rating(movie, score):
     workflow.log_event(st.session_state.trace, "rating", agent="user",
                        detail=f"{movie['Series_Title']} = {score}/10")
     refresh_cards()
-    refresh_random()  # card eksplorasi selalu diambil ulang sesuai pusat selera terbaru
+    if len(_unrated(st.session_state.random_cards)) < K_RANDOM:  # isi ulang card acak
+        refresh_random()
     st.rerun()
 
 
@@ -290,8 +277,7 @@ def card_panel():
             st.rerun()
 
     st.subheader("Card acak")
-    st.caption(f"eksplorasi: jarak {BAND_LOW:.0f}-{BAND_HIGH:.0f}x jangkauan rekomendasi"
-               if ratings else "film acak (belum ada rating user)")
+    st.caption("film yang belum kamu rating (untuk eksplorasi)")
     fresh = _unrated(st.session_state.random_cards)
     with st.container(height=RANDOM_HEIGHT, border=False):
         if not fresh:
@@ -339,12 +325,10 @@ def pca_panel():
             frame,
             pd.DataFrame(marks),
             _ring(center, radius, "jangkauan rekomendasi"),
-            _ring(center, radius * BAND_LOW, "batas dalam eksplorasi"),
-            _ring(center, radius * BAND_HIGH, "batas luar eksplorasi"),
         ], ignore_index=True)
         caption = (f"titik selera kamu: PC1={center[0]:.2f}, PC2={center[1]:.2f} · "
                    f"jangkauan {len(recommendations)} rekomendasi = {radius:.3f} · "
-                   f"card acak diambil pada {BAND_LOW:.0f}-{BAND_HIGH:.0f}x jangkauan")
+                   "card acak diambil dari seluruh katalog di luar area ini")
 
     st.subheader("Visualisasi PCA")
     st.caption("Hover pada titik untuk melihat judul filmnya.")

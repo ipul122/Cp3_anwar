@@ -104,28 +104,6 @@ def pca_neighbors(center: tuple[float, float], k: int = 3, exclude=()) -> list[d
     return [r for r in rows if r["id"] not in skip][:k]
 
 
-def band_movies(center: tuple[float, float], radius: float, limit: int = 3, exclude=(),
-                low: float = 2.0, high: float = 5.0) -> list[dict]:
-    """Film pada jarak low*radius s/d high*radius dari pusat selera (eksplorasi).
-
-    Dipakai card acak: jauh dari jangkauan rekomendasi, tapi masih satu wilayah
-    dengan selera user - bukan film dari ujung katalog yang tidak nyambung.
-    """
-    pc1, pc2 = center
-    squared = "(PC1 - ?) * (PC1 - ?) + (PC2 - ?) * (PC2 - ?)"
-    sql = (
-        f"SELECT {FIELDS} FROM imdb_movies WHERE PC1 IS NOT NULL AND PC2 IS NOT NULL "
-        f"AND {squared} BETWEEN ? AND ?"
-    )
-    params = [pc1, pc1, pc2, pc2, (low * radius) ** 2, (high * radius) ** 2]
-    if exclude:
-        exclude = list(exclude)
-        sql += f" AND id NOT IN ({','.join('?' * len(exclude))})"
-        params += exclude
-    sql += " ORDER BY RANDOM() LIMIT ?"
-    return query(sql, params + [limit])
-
-
 def pca_points() -> list[dict]:
     """Semua titik (PC1, PC2) untuk visualisasi sebaran film."""
     return query(

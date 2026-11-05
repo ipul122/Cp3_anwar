@@ -45,19 +45,17 @@ terbaru (`autoscroll`).
 3. **Kanan - Card rekomendasi + Card acak**: dua bagian terpisah.
    - **Card rekomendasi** (`K_RECO = 5`): tiap card menampilkan **poster + judul
      (link IMDb) + genre + rating IMDb**, slider rating 1-10, tombol simpan.
-   - **Card acak** (`K_RANDOM = 3`): eksplorasi di **cincin 2-5x jangkauan rekomendasi**
-     (`BAND_LOW`/`BAND_HIGH` di `app.py`) dari pusat selera, lalu diacak dengan
-     `ORDER BY RANDOM()` di dalam cincin itu (`data.band_movies()`). Jadi bukan film
-     dari ujung katalog yang tidak nyambung: **di luar jangkauan, tapi masih satu
-     wilayah** dengan selera kamu. Sebelum ada rating (belum ada pusat selera) card
-     acak murni acak. Tombol **Acak lagi** untuk ganti; card yang sudah dirating
+   - **Card acak** (`K_RANDOM = 3`): acak murni dari seluruh katalog
+     (`ORDER BY RANDOM()`), hanya membuang film yang sudah dirating dan film yang
+     sedang tampil sebagai rekomendasi — jadi praktis selalu **di luar area
+     rekomendasi**. Tombol **Acak lagi** untuk ganti; card yang sudah dirating
      otomatis hilang dari daftar.
 
-     Ukuran (30 profil acak): cincin 2-5x berisi rata-rata **160 film dari 1000**
-     (min 51), jadi selalu ada pilihan. Bandingkan dengan acak murni yang jarak
-     mediannya ~11x radius — di luar zona eksplorasi. Zona ini juga digambar di
-     visualisasi PCA (lingkaran "batas dalam/luar eksplorasi") dan card acak
-     ditandai sebagai kelompok "card acak".
+     Ukuran (30 profil acak): jangkauan rekomendasi hanya berisi ~5 film dari 1000,
+     sehingga **~99.5% card acak otomatis jatuh di luar jangkauan** (jarak median
+     ~11x radius). Karena itu "mungkin anda suka" sifatnya kebetulan (~0.5%). Titik
+     card acak tetap ditandai di visualisasi PCA sebagai kelompok "card acak" supaya
+     posisinya di luar area rekomendasi terlihat.
 
    Sumber card rekomendasi:
    - **acak** saat sesi baru (belum ada rating),
