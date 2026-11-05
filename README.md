@@ -48,12 +48,13 @@ Setiap percakapan dikirim ke Langfuse (SDK v5, OpenTelemetry) dengan
 
 ## Catatan model & reranker
 
-- Reranker (`Rerank_MODEL`, default `mongodb/rerank-2.5`) dipanggil lewat endpoint
-  `/api/v1/rerank` OpenRouter. Kalau akun OpenRouter dibatasi "ZDR only"
-  (Settings → Privacy), semua provider reranker akan balas `404` sehingga
-  urutan hasil diambil dari **LLM sebagai cadangan** (`llm-fallback`).
-  Sumber urutan selalu tercatat di console log Streamlit pada baris `tool_result`.
-  Setelah provider reranker diizinkan, otomatis kembali memakai `reranker` tanpa ubah kode.
+- Reranker (`Rerank_MODEL`, default `qwen/qwen3-reranker-8b`) dipanggil lewat endpoint
+  `/api/v1/rerank` OpenRouter. Kalau gagal (rate limit `429` atau provider diblokir
+  karena akun dibatasi "ZDR only" di Settings → Privacy), urutan hasil diambil dari
+  **LLM sebagai cadangan** (`llm-fallback`). Sumber urutan selalu tercatat di console
+  log Streamlit pada baris `tool_result`.
+  Catatan: `cohere/*` dan `mongodb/rerank-2.5` diblokir ZDR di akun ini, sementara
+  `qwen/qwen3-reranker-8b` bisa dipakai.
 - `LLM_MODEL` dipakai untuk chatting **dan** panggilan tool/structured. Model
   `inclusionai/ling-3.1-flash` sempat menggantung/`429` untuk panggilan tool
   ber-tools, jadi default di sini `google/gemini-2.5-flash`.
