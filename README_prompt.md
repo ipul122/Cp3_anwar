@@ -1,12 +1,18 @@
 # Prompt untuk Langfuse
 
-Semua prompt dikelola di **Langfuse** (label `production`), bukan di kode.
-Buat 3 prompt di bawah ini dengan nama yang sama. Kalau salah satu belum ada,
-aplikasi otomatis memakai fallback di `src/imdb_anwar/prompts.py` (isinya sama).
+Semua prompt dikelola **hanya di Langfuse** (label `production`). Tidak ada teks
+prompt di dalam kode - `src/imdb_anwar/prompts.py` cuma mengambil prompt lalu
+mengisi variabelnya (`{{context}}`, `{{history}}`, `{{question}}`, `{{schema}}`).
+File ini hanya dokumen untuk menempelkan prompt ke UI Langfuse.
+
+Kalau sebuah prompt belum ada di Langfuse, langkah itu berhenti dengan pesan
+"Prompt '<nama>' belum ada di Langfuse (label production)" dan tercatat di console log.
 
 Cara pakai: Langfuse → **Prompts** → **New prompt** → isi Name, Type = `Text`,
 lalu isi template. Setelah tersimpan, beri label **production**
 (Prompt → Labels → add label `production`).
+
+Cara cepat: `poetry run python sync_prompts.py` (mengirim 3 blok di bawah ke Langfuse).
 
 | Name                 | Variabel                   | Dipakai oleh   |
 | -------------------- | -------------------------- | -------------- |

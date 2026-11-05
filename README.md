@@ -54,10 +54,10 @@ Start -> Supervisor -> (Retrieve | Analytics | Recommend) -> Supervisor -> Answe
 
 ## Prompt di Langfuse
 
-Lihat **`README_prompt.md`** - tempel 3 prompt di sana (`imdb-supervisor`,
-`imdb-sql-agent`, `imdb-answer-agent`) dengan label `production`.
-Prompt dipakai lewat SDK, bukan hardcode; kalau tidak ada di Langfuse, aplikasi
-memakai fallback di `src/imdb_anwar/prompts.py`.
+Prompt **hanya** ada di Langfuse (label `production`) — tidak ada teks prompt di kode.
+`src/imdb_anwar/prompts.py` hanya mengambil prompt dan mengisi variabelnya.
+Teks untuk dipasang di Langfuse ada di **`README_prompt.md`**; cara cepat:
+`poetry run python sync_prompts.py`.
 
 ## Observability (Langfuse)
 

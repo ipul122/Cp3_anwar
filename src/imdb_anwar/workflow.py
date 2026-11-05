@@ -255,6 +255,10 @@ def run(question: str, history=None, ratings=None, trace=None) -> tuple[str, dic
             else:
                 result = GRAPH.invoke(state)
                 answer = result["answer"]
+    except prompts.PromptMissing as error:
+        log_event(trace, "error", agent="langfuse", detail=str(error)[:200])
+        answer = f"Prompt '{error.name}' belum ada di Langfuse (label {config.PROMPT_LABEL})."
+        result = {**state, "answer": answer}
     except Exception as error:  # jangan bikin app mati kalau provider bermasalah
         log_event(trace, "error", detail=f"{type(error).__name__}: {error}"[:200])
         answer = "Maaf, model sedang bermasalah (rate limit / timeout). Coba lagi sebentar lagi."

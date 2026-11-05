@@ -29,10 +29,10 @@ def test_data():
 
 
 def test_prompts():
-    template = prompts.FALLBACK[config.PROMPT_ANSWER]
-    filled = prompts._fill(template, {"context": "KONTEKS", "question": "PERTANYAAN"})
-    assert "KONTEKS" in filled and "PERTANYAAN" in filled
-    assert "{{" not in filled, "placeholder harus terisi semua"
+    """Prompt hanya boleh datang dari Langfuse; kode cuma mengisi variabelnya."""
+    assert not hasattr(prompts, "FALLBACK"), "teks prompt tidak boleh ada di kode"
+    assert prompts._fill("{{context}}|{{question}}", {"context": "C", "question": "Q"}) == "C|Q"
+    assert issubclass(prompts.PromptMissing, RuntimeError)
 
 
 def test_graph():
