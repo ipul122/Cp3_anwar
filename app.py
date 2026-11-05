@@ -172,7 +172,7 @@ def movie_card(movie, prefix):
             st.caption(f"{movie['genre']} · ⭐ {movie['rating']}")
             st.write(f"{str(movie['overview'])[:110]}…")
         score = st.slider("Rating (1-10)", 1, 10, 7, key=f"slider_{prefix}_{movie['id']}")
-        if st.button("Simpan rating", key=f"save_{prefix}_{movie['id']}", use_container_width=True):
+        if st.button("Simpan rating", key=f"save_{prefix}_{movie['id']}", width="stretch"):
             save_rating(movie, score)
 
 
@@ -248,7 +248,7 @@ def card_panel():
     # sekali klik untuk kembali ke rekomendasi hasil PCA dari rating user.
     if source == "chat":
         label = f"Pakai rekomendasi PCA ({len(ratings)} rating)" if ratings else "Segarkan card acak"
-        if st.button(label, use_container_width=True):
+        if st.button(label, width="stretch"):
             refresh_cards()
             st.rerun()
 
@@ -260,7 +260,7 @@ def card_panel():
             st.caption("Semua card acak sudah dirating. Klik tombol Acak lagi.")
         for movie in fresh:
             movie_card(movie, "random")
-    if st.button("Acak lagi", use_container_width=True):
+    if st.button("Acak lagi", width="stretch"):
         refresh_random()
         st.rerun()
 
@@ -282,12 +282,14 @@ def pca_panel():
                            else data.pca_neighbors(center, k=K_RECO, exclude=ratings))
         for movie in recommendations:
             marks.append({"id": movie["id"], "Series_Title": movie["Series_Title"],
-                          "PC1": movie["PC1"], "PC2": movie["PC2"], "kelompok": "rekomendasi"})
+                          "rating": movie["rating"], "PC1": movie["PC1"], "PC2": movie["PC2"],
+                          "kelompok": "rekomendasi"})
         radius = max(float(np.hypot(m["PC1"] - center[0], m["PC2"] - center[1])) for m in recommendations)
         angle = np.linspace(0, 2 * np.pi, 90)
         ring = pd.DataFrame({
             "PC1": center[0] + radius * np.cos(angle),
             "PC2": center[1] + radius * np.sin(angle),
+            "Series_Title": "batas jangkauan rekomendasi",
             "kelompok": "jangkauan rekomendasi",
         })
         frame = pd.concat([frame, pd.DataFrame(marks), ring], ignore_index=True)
@@ -296,7 +298,27 @@ def pca_panel():
                    f"(jarak euclidean ke tetangga terjauh)")
 
     st.subheader("Visualisasi PCA")
-    st.scatter_chart(frame, x="PC1", y="PC2", color="kelompok", height=PCA_HEIGHT)
+    st.caption("Hover pada titik untuk melihat judul filmnya.")
+    st.vega_lite_chart(
+        frame,
+        {
+            "mark": {"type": "circle", "size": 45, "opacity": 0.85},
+            "encoding": {
+                "x": {"field": "PC1", "type": "quantitative"},
+                "y": {"field": "PC2", "type": "quantitative"},
+                "color": {"field": "kelompok", "type": "nominal"},
+                "tooltip": [
+                    {"field": "Series_Title", "type": "nominal", "title": "Film"},
+                    {"field": "rating", "type": "quantitative", "title": "Rating IMDb"},
+                    {"field": "PC1", "type": "quantitative", "title": "PC1", "format": ".3f"},
+                    {"field": "PC2", "type": "quantitative", "title": "PC2", "format": ".3f"},
+                    {"field": "kelompok", "type": "nominal", "title": "Kelompok"},
+                ],
+            },
+        },
+        height=PCA_HEIGHT,
+        width="stretch",
+    )
     st.caption(caption)
 
 
@@ -309,7 +331,7 @@ def rated_panel():
             st.caption("Belum ada. Beri rating dari card rekomendasi atau dari jawaban chatbot.")
         for movie_id, score in ratings.items():
             st.write(f"**{score}/10** · {st.session_state.titles.get(movie_id, movie_id)}")
-    if ratings and st.button("Hapus semua rating", use_container_width=True):
+    if ratings and st.button("Hapus semua rating", width="stretch"):
         st.session_state.ratings = {}
         st.session_state.titles = {}
         refresh_cards()

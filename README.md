@@ -58,9 +58,10 @@ terbaru (`autoscroll`).
 **Baris bawah** (`st.columns([2.2, 1.2])`):
 
 4. **Kiri - Visualisasi PCA**: scatter `PC1` vs `PC2` untuk **seluruh 1000 film**
-   (`st.scatter_chart`, dikelompokkan: semua film / film yang kamu rating / selera
-   kamu / rekomendasi / jangkauan). Titik "selera kamu" adalah centroid rating, dan
-   **jangkauan rekomendasi** digambar sebagai lingkaran sejauh jarak euclidean ke
+   (`st.vega_lite_chart`, dikelompokkan: semua film / film yang kamu rating / selera
+   kamu / rekomendasi / jangkauan). **Hover pada titik menampilkan judul film**,
+   rating IMDb, PC1, PC2, dan kelompoknya. Titik "selera kamu" adalah centroid rating,
+   dan **jangkauan rekomendasi** digambar sebagai lingkaran sejauh jarak euclidean ke
    tetangga terjauh.
 5. **Kanan - Daftar film yang dirating user 1-10** + tombol hapus semua rating.
 

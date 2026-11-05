@@ -75,7 +75,10 @@ def pca_neighbors(center: tuple[float, float], k: int = 3, exclude=()) -> list[d
 
 def pca_points() -> list[dict]:
     """Semua titik (PC1, PC2) untuk visualisasi sebaran film."""
-    return query("SELECT id, Series_Title, PC1, PC2 FROM imdb_movies WHERE PC1 IS NOT NULL")
+    return query(
+        "SELECT id, Series_Title, IMDB_Rating AS rating, PC1, PC2 "
+        "FROM imdb_movies WHERE PC1 IS NOT NULL"
+    )
 
 
 def to_json(records: list[dict]) -> str:
