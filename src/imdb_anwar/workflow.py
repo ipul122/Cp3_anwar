@@ -155,7 +155,7 @@ def retrieve(state: State) -> dict:
     movies = json.loads(tools.search_movies.invoke({"query": query}))
     log_event(state["trace"], "tool_result", agent="retrieve-agent", name="search_movies",
               detail=f"{len(movies)} film · rerank: {vectorstore.last_rerank}")
-    return {"context": state["context"] + [f"Hasil pencarian film: {data.to_json(movies)}"],
+    return {"context": state["context"] + [f"Hasil pencarian film: {data.for_llm(movies)}"],
             "movies": movies}
 
 

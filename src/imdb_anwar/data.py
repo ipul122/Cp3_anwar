@@ -9,8 +9,11 @@ from . import config
 FIELDS = (
     "id, Series_Title, Released_Year_numeric AS year, Genre AS genre, "
     "Director AS director, IMDB_Rating AS rating, Overview AS overview, "
-    "Runtime_minutes AS runtime, Meta_score AS meta_score, PC1, PC2"
+    "Runtime_minutes AS runtime, Meta_score AS meta_score, Poster_Link, PC1, PC2"
 )
+
+# Kolom yang perlu dikirim ke LLM sebagai konteks (tanpa poster/PC agar hemat token).
+LLM_FIELDS = ("id", "Series_Title", "year", "genre", "director", "rating", "overview")
 
 
 def query(sql: str, params=()) -> list[dict]:
@@ -68,6 +71,12 @@ def pca_neighbors(center: tuple[float, float], k: int = 3, exclude=()) -> list[d
 def to_json(records: list[dict]) -> str:
     """Ubah baris hasil query jadi JSON, dipakai sebagai output tool dan konteks agent."""
     return json.dumps(records, ensure_ascii=False, default=str)
+
+
+def for_llm(movies: list[dict]) -> str:
+    """JSON ringkas film untuk konteks LLM (Poster_Link dan PC tidak ikut)."""
+    return json.dumps([{key: movie.get(key) for key in LLM_FIELDS} for movie in movies],
+                      ensure_ascii=False, default=str)
 
 
 def schema_text() -> str:

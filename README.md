@@ -33,11 +33,12 @@ Daftar chat juga otomatis turun ke pesan terbaru (`autoscroll`).
    **siapa yang dipanggil** (`route agent=supervisor`, `tool agent=retrieve-agent
    name=search_movies`, `llm name=answer tokens=... cost=...`, `warn`, `final`),
    termasuk status reranker (`rerank: reranker` / `llm-fallback`).
-2. **Tengah - Chatbot**: percakapan dengan chat history + expander
-   "Data dari vector database (Qdrant)" sebagai bukti jawaban berasal dari RAG.
-   Ada indikator loading saat agent memproses.
-3. **Kanan - Card rekomendasi**: film yang bisa langsung diberi rating 1-10, dan di
-   bawahnya **daftar film yang sudah dirating user**. Card diisi dua sumber:
+2. **Tengah - Chatbot**: percakapan dengan chat history, **poster film** hasil
+   rekomendasi agent, dan expander "Data dari vector database (Qdrant)" sebagai bukti
+   jawaban berasal dari RAG. Ada indikator loading saat agent memproses.
+3. **Kanan - Card rekomendasi**: tiap card menampilkan **poster + judul + genre +
+   rating IMDb**, slider rating 1-10, dan di bawahnya **daftar film yang sudah
+   dirating user**. Card diisi dua sumber:
    - **acak** saat sesi baru (belum ada rating),
    - **hasil rekomendasi chatbot** (film yang baru disebut agent) sehingga user
      memberi rating berdasarkan interaksi chatbot,
@@ -83,6 +84,17 @@ Setiap percakapan dikirim ke Langfuse (SDK v5, OpenTelemetry) dengan
   `inclusionai/ling-3.1-flash` sempat menggantung/`429` untuk panggilan tool
   ber-tools, jadi default di sini `google/gemini-2.5-flash`.
 
+## Poster film
+
+- Poster diambil dari kolom `Poster_Link` (SQLite) dan dinaikkan resolusinya ke
+  `._V1_SX300.jpg` karena link aslinya cuma 67px.
+- Saat ingest, seluruh kolom teks termasuk `Poster_Link` di-lowercase, sehingga URL
+  Amazon dibalas `400`. Kolom itu diperbaiki dari CSV aslinya dengan
+  `poetry run python fix_posters.py` (1000/1000 baris) — sudah ikut ter-commit.
+- Sekitar 1 dari 6 URL di dataset aslinya memang sudah mati di sisi Amazon. Untuk itu
+  poster diambil sekali per URL (`@st.cache_data`), dan kalau gagal ditampilkan
+  tulisan "poster tidak tersedia" — bukan gambar rusak.
+
 ## Setup
 
 ```bash
@@ -104,5 +116,6 @@ src/imdb_anwar/vectorstore.py   # embed, Qdrant, reranker
 src/imdb_anwar/tools.py         # tool agent: search_movies, movie_stats
 src/imdb_anwar/workflow.py      # graph LangGraph + log flow agent/tool + guardrail
 sync_prompts.py                 # kirim ulang prompt README_prompt.md ke Langfuse
+fix_posters.py                  # perbaiki Poster_Link di database dari CSV asli
 check.py                        # cek cepat tanpa panggilan LLM
 ```

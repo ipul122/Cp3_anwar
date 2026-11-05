@@ -9,6 +9,7 @@ import sys
 import uuid
 from pathlib import Path
 
+import httpx
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
@@ -21,8 +22,30 @@ st.set_page_config(page_title="IMDb Movie Assistant", page_icon="🎬", layout="
 # bertambah - yang scroll hanya bagian dalam panelnya (kiri, tengah, kanan).
 LOG_HEIGHT = 520
 CHAT_HEIGHT = 520
-CARDS_HEIGHT = 340
-RATED_HEIGHT = 160
+CARDS_HEIGHT = 430
+RATED_HEIGHT = 150
+
+
+@st.cache_data(show_spinner=False, ttl=86400)
+def poster_bytes(url: str) -> bytes | None:
+    """Ambil gambar poster sekali per URL (hasilnya di-cache). None kalau URL mati."""
+    try:
+        response = httpx.get(url, timeout=15, follow_redirects=True,
+                             headers={"User-Agent": "Mozilla/5.0"})
+        response.raise_for_status()
+        return response.content
+    except Exception:
+        return None
+
+
+def show_poster(movie, width: int = 96):
+    """Tampilkan poster film. Poster_Link di database cuma 67px, jadi diambil versi 300px."""
+    link = str(movie.get("Poster_Link") or "")
+    image = poster_bytes(link.split("._V1")[0] + "._V1_SX300.jpg") if link.startswith("http") else None
+    if image:
+        st.image(image, width=width)
+    else:
+        st.caption("🎬 poster tidak tersedia")
 
 
 def setup():
@@ -59,18 +82,24 @@ def ask(question):
         answer, state, _ = workflow.run(question, st.session_state.chat,
                                        st.session_state.ratings, st.session_state.trace)
     st.session_state.chat.append({"role": "user", "content": question})
-    st.session_state.chat.append({"role": "assistant", "content": answer, "context": state["context"]})
+    st.session_state.chat.append({"role": "assistant", "content": answer,
+                                  "context": state["context"],
+                                  "movies": (state.get("movies") or [])[:3]})
     if state.get("movies"):  # film hasil rekomendasi agent langsung bisa dirating
         st.session_state.cards = state["movies"]
 
 
 def movie_card(movie, prefix):
-    """Card rekomendasi + rating 1-10."""
+    """Card rekomendasi (poster + info film) dengan rating 1-10."""
     with st.container(border=True):
-        year = int(movie["year"]) if movie["year"] else "?"
-        st.markdown(f"**{str(movie['Series_Title']).title()}** ({year})")
-        st.caption(f"{movie['genre']} · ⭐ {movie['rating']}")
-        st.write(f"{str(movie['overview'])[:160]}…")
+        poster, info = st.columns([1, 2.2], gap="small")
+        with poster:
+            show_poster(movie, width=104)
+        with info:
+            year = int(movie["year"]) if movie["year"] else "?"
+            st.markdown(f"**{str(movie['Series_Title']).title()}** ({year})")
+            st.caption(f"{movie['genre']} · ⭐ {movie['rating']}")
+            st.write(f"{str(movie['overview'])[:110]}…")
         score = st.slider("Rating (1-10)", 1, 10, 7, key=f"slider_{prefix}_{movie['id']}")
         if st.button("Simpan rating", key=f"save_{prefix}_{movie['id']}", use_container_width=True):
             save_rating(movie, score)
@@ -110,6 +139,13 @@ def chat_panel():
         for message in st.session_state.chat:
             with st.chat_message(message["role"]):
                 st.write(message["content"])
+                if message["role"] == "assistant" and message.get("movies"):
+                    # poster film yang direkomendasikan agent
+                    columns = st.columns(len(message["movies"]))
+                    for column, movie in zip(columns, message["movies"]):
+                        with column:
+                            show_poster(movie, width=84)
+                            st.caption(str(movie["Series_Title"]).title())
                 if message["role"] == "assistant" and message.get("context"):
                     with st.expander("Data dari vector database (Qdrant)"):
                         for item in message["context"]:
