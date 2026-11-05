@@ -14,6 +14,7 @@ load_dotenv()
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "data" / "database.db"
+DB_URI = f"file:{DB_PATH.as_posix()}?mode=ro"  # selalu read-only, aman di filesystem read-only
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")

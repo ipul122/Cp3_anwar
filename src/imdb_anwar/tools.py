@@ -38,7 +38,7 @@ def movie_stats(question: str) -> str:
     sql = re.sub(r"^```(?:sql)?|```$", "", raw, flags=re.IGNORECASE).strip()
     if not _is_safe_select(sql):
         return "Pertanyaan ini tidak bisa dijawab dengan query yang aman ke database."
-    with sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True) as conn:
+    with sqlite3.connect(config.DB_URI, uri=True) as conn:
         conn.row_factory = sqlite3.Row
         rows = [dict(row) for row in conn.execute(sql)]
     if not rows:

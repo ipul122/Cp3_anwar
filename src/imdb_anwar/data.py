@@ -14,8 +14,8 @@ FIELDS = (
 
 
 def query(sql: str, params=()) -> list[dict]:
-    """Jalankan SQL dan kembalikan list of dict."""
-    with sqlite3.connect(config.DB_PATH) as conn:
+    """Jalankan SQL (read-only) dan kembalikan list of dict."""
+    with sqlite3.connect(config.DB_URI, uri=True) as conn:
         conn.row_factory = sqlite3.Row
         return [dict(row) for row in conn.execute(sql, params)]
 
