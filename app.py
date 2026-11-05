@@ -27,10 +27,10 @@ K_RECO = 5  # jumlah card rekomendasi
 K_RANDOM = 3  # jumlah card acak
 LOG_HEIGHT = 520
 CHAT_HEIGHT = 520
-CARDS_HEIGHT = 330
-RANDOM_HEIGHT = 200
+CARDS_HEIGHT = 500
+RANDOM_HEIGHT = 300
 PCA_HEIGHT = 400
-RATED_HEIGHT = 400
+RATED_HEIGHT = 150
 
 # Warna badge di console log supaya alurnya mudah dibaca:
 # user biru, supervisor violet, tool oranye, hasil tool abu-abu, jawaban hijau,
@@ -199,6 +199,23 @@ def console_panel():
     st.caption(f"LLM: {config.LLM_MODEL}  \nRerank: {config.RERANK_MODEL}")
 
 
+def chat_movies(movies, position):
+    """Poster + rating untuk film yang direkomendasikan di jawaban chatbot."""
+    ratings = st.session_state.ratings
+    columns = st.columns(len(movies))
+    for index, (column, movie) in enumerate(zip(columns, movies)):
+        with column:
+            show_poster(movie, width=84)
+            st.markdown(f"[{str(movie['Series_Title']).title()}]({imdb_url(movie)})")
+            if movie["id"] in ratings:
+                st.caption(f"✓ dirating {ratings[movie['id']]}/10")
+                continue
+            score = st.selectbox("rating", range(1, 11), index=6, key=f"chat_{position}_{index}_{movie['id']}",
+                                 label_visibility="collapsed")
+            if st.button("Simpan", key=f"chatsave_{position}_{index}_{movie['id']}", width="stretch"):
+                save_rating(movie, score)
+
+
 def chat_panel():
     """Tengah: percakapan dengan agent + bukti data dari vector database.
 
@@ -208,16 +225,12 @@ def chat_panel():
     with st.container(height=CHAT_HEIGHT, border=False, autoscroll=True):
         if not st.session_state.chat:
             st.caption("Mulai dengan bertanya, misal: \"rekomendasikan film perang dunia kedua\".")
-        for message in st.session_state.chat:
+        for position, message in enumerate(st.session_state.chat):
             with st.chat_message(message["role"]):
                 st.write(message["content"])
                 if message["role"] == "assistant" and message.get("movies"):
-                    # poster film yang direkomendasikan agent
-                    columns = st.columns(len(message["movies"]))
-                    for column, movie in zip(columns, message["movies"]):
-                        with column:
-                            show_poster(movie, width=84)
-                            st.markdown(f"[{str(movie['Series_Title']).title()}]({imdb_url(movie)})")
+                    # film di jawaban chatbot bisa langsung dirating
+                    chat_movies(message["movies"], position)
                 if message["role"] == "assistant" and message.get("context"):
                     with st.expander("Data dari vector database (Qdrant)"):
                         for item in message["context"]:
@@ -329,9 +342,9 @@ def rated_panel():
     st.subheader("Daftar film yang dirating user 1-10")
     with st.container(height=RATED_HEIGHT, border=False):
         if not ratings:
-            st.caption("Belum ada. Beri rating dari card rekomendasi atau dari jawaban chatbot.")
+            st.caption("Belum ada. Beri rating dari card rekomendasi, card acak, atau jawaban chatbot.")
         for movie_id, score in ratings.items():
-            st.write(f"**{score}/10** · {st.session_state.titles.get(movie_id, movie_id)}")
+            st.caption(f"{score}/10 · {st.session_state.titles.get(movie_id, movie_id)}")
     if ratings and st.button("Hapus semua rating", width="stretch"):
         st.session_state.ratings = {}
         st.session_state.titles = {}

@@ -36,9 +36,11 @@ terbaru (`autoscroll`).
    name=search_movies`, `llm name=answer tokens=... cost=...`, `warn`, `final`),
    termasuk status reranker (`rerank: reranker` / `llm-fallback`). Tiap jenis log
    diberi warna berbeda supaya alurnya mudah dibaca.
-2. **Tengah - Chatbot**: percakapan dengan chat history, **poster film** (bisa diklik
-   ke IMDb) pada jawaban yang menyebut film, dan expander "Data dari vector database
-   (Qdrant)" sebagai bukti jawaban berasal dari RAG. Ada indikator loading saat agent
+2. **Tengah - Chatbot**: percakapan dengan chat history. Jawaban yang menyebut film
+   menampilkan **poster (klik ke IMDb)** dan **rating 1-10 + tombol Simpan** untuk tiap
+   film — jadi rating juga bisa diberikan langsung dari chatbot (film yang sudah
+   dirating ditandai "✓ dirating 9/10"). Ada juga expander "Data dari vector database
+   (Qdrant)" sebagai bukti jawaban berasal dari RAG, dan indikator loading saat agent
    memproses.
 3. **Kanan - Card rekomendasi + Card acak**: dua bagian terpisah.
    - **Card rekomendasi** (`K_RECO = 5`): tiap card menampilkan **poster + judul
@@ -77,7 +79,8 @@ terbaru (`autoscroll`).
    rating IMDb, PC1, PC2, dan kelompoknya. Titik "selera kamu" adalah centroid rating,
    dan **jangkauan rekomendasi** digambar sebagai lingkaran sejauh jarak euclidean ke
    tetangga terjauh.
-5. **Kanan - Daftar film yang dirating user 1-10** + tombol hapus semua rating.
+5. **Kanan - Daftar film yang dirating user 1-10**: daftar ringkas (font kecil,
+   `RATED_HEIGHT = 150`) + tombol hapus semua rating.
 
 ## Guardrail (anti jailbreak)
 
