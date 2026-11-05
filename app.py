@@ -287,7 +287,7 @@ def card_panel():
     ratings = st.session_state.ratings
     source = st.session_state.card_source
 
-    st.subheader("Card rekomendasi")
+    st.subheader("Rekomendasi")
     if source == "chat":
         st.caption(f"dari jawaban chatbot · {st.session_state.card_query}")
     elif source == "pca":
@@ -308,7 +308,7 @@ def card_panel():
             refresh_cards()
             st.rerun()
 
-    st.subheader("Card acak")
+    st.subheader("Mungkin anda suka")
     st.caption("film yang belum kamu rating (untuk eksplorasi)")
     fresh = _unrated(st.session_state.random_cards)
     with st.container(height=RANDOM_HEIGHT, border=False):
