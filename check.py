@@ -62,6 +62,13 @@ def test_rating_center():
     assert distance(hated) > distance(mild), "rating 1 harus mendorong lebih kuat daripada rating 5"
     assert data.rating_center({disliked["id"]: 2}) is not None, "semua jelek tetap harus menghasilkan titik"
 
+    # hanya RECENT_RATINGS terbaru yang dipakai
+    pool = data.random_movies(data.RECENT_RATINGS + 2)
+    semua = {movie["id"]: 9 for movie in pool}
+    terbaru = dict(list(semua.items())[-data.RECENT_RATINGS:])
+    assert data.rating_center(semua) == data.rating_center(terbaru), \
+        "rating lama harus diabaikan setelah lebih dari RECENT_RATINGS"
+
 
 def test_lookup_by_title():
     """Film bisa diambil dari judul (route lookup) dan link IMDb ikut ke konteks LLM."""

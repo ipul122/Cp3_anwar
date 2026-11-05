@@ -138,7 +138,8 @@ def refresh_cards():
 
 
 def save_rating(movie, score):
-    """Simpan rating user, lalu segarkan rekomendasi supaya ikut rating (PCA)."""
+    """Simpan rating user (paling baru di urutan terakhir), lalu segarkan rekomendasi."""
+    st.session_state.ratings.pop(movie["id"], None)  # rating ulang -> pindah ke terbaru
     st.session_state.ratings[movie["id"]] = score
     st.session_state.titles[movie["id"]] = movie["Series_Title"]
     workflow.log_event(st.session_state.trace, "rating", agent="user",
@@ -254,7 +255,9 @@ def card_panel():
     if source == "chat":
         st.caption(f"dari jawaban chatbot · {st.session_state.card_query}")
     elif source == "pca":
-        st.caption(f"{K_RECO} film terdekat dari {len(ratings)} rating kamu (PCA)")
+        dipakai = min(len(ratings), data.RECENT_RATINGS)
+        ekstra = f" dari {len(ratings)}" if len(ratings) > data.RECENT_RATINGS else ""
+        st.caption(f"{K_RECO} film terdekat dari {dipakai} rating terbaru{ekstra} (PCA)")
     else:
         st.caption(f"{K_RECO} film acak (belum ada rating user)")
     with st.container(height=CARDS_HEIGHT, border=False):
@@ -321,6 +324,7 @@ def pca_panel():
         ], ignore_index=True)
         caption = (f"titik selera kamu: PC1={center[0]:.2f}, PC2={center[1]:.2f} · "
                    f"jangkauan {len(recommendations)} rekomendasi = {radius:.3f} · "
+                   f"dihitung dari {min(len(ratings), data.RECENT_RATINGS)} rating terbaru · "
                    "card acak diambil dari seluruh katalog di luar area ini")
 
     st.subheader("Visualisasi PCA")

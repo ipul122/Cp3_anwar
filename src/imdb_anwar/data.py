@@ -20,6 +20,7 @@ LLM_FIELDS = ("id", "Series_Title", "year", "genre", "director", "rating", "over
 OVERVIEW_CHARS = 200  # overview dipotong supaya konteks tidak boros token
 
 PUSH_AWAY = 0.5  # seberapa kuat film yang tidak disukai mendorong titik selera
+RECENT_RATINGS = 7  # hanya rating terbaru ini yang dipakai menghitung titik selera
 
 
 def query(sql: str, params=()) -> list[dict]:
@@ -62,6 +63,10 @@ def _primary_mean(column: str) -> float:
 def rating_center(ratings: dict) -> tuple[float, float] | None:
     """Titik selera user di ruang PCA 2D (PC1, PC2).
 
+    Hanya RECENT_RATINGS (7) rating TERBARU yang dipakai, jadi selera yang lama
+    otomatis tergantikan begitu user memberi rating baru (urutan dict = urutan
+    pemberian rating, yang dirating ulang pindah ke paling belakang).
+
     Perlakukan rating bagus dan jelek berbeda:
 
     - rating >= 6 (disukai)  : menarik titik selera, bobotnya nilai rating.
@@ -73,6 +78,7 @@ def rating_center(ratings: dict) -> tuple[float, float] | None:
     """
     if not ratings:
         return None
+    ratings = dict(list(ratings.items())[-RECENT_RATINGS:])
     placeholders = ",".join("?" * len(ratings))
     rows = query(f"SELECT id, PC1, PC2 FROM imdb_movies WHERE id IN ({placeholders})", tuple(ratings))
     rows = [r for r in rows if r["PC1"] is not None and r["PC2"] is not None]

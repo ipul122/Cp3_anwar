@@ -272,15 +272,21 @@ GRAPH = _build_graph()
 
 
 def _rating_note(ratings: dict) -> str:
-    """Ringkasan rating user supaya agent tahu film apa saja yang sudah dinilai."""
+    """Ringkasan rating user supaya agent tahu film apa saja yang sudah dinilai.
+
+    Yang dirinci hanya RECENT_RATINGS terbaru - sama dengan yang dipakai menghitung
+    titik selera, supaya agent dan rekomendasi memakai acuan yang sama.
+    """
     if not ratings:
         return "Rating user: belum ada film yang diberi rating."
-    movies = data.by_ids(list(ratings))
+    terbaru = list(ratings.items())[-data.RECENT_RATINGS:]
+    movies = data.by_ids([movie_id for movie_id, _ in terbaru])
     items = "; ".join(
         f"{m['Series_Title']} ({int(m['year']) if m['year'] else '?'}) = {ratings[m['id']]}/10"
         for m in movies
     )
-    return f"Rating user ({len(movies)} film): {items}"
+    return (f"Rating user: total {len(ratings)} film, {len(movies)} terbaru dipakai "
+            f"untuk rekomendasi: {items}")
 
 
 def run(question: str, history=None, ratings=None, trace=None) -> tuple[str, dict, dict]:

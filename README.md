@@ -77,6 +77,11 @@ terbaru (`autoscroll`).
      menariknya. Setelah itu diambil `K_RECO` tetangga terdekat (jarak euclidean),
      dan film yang sudah dirating dibuang.
 
+     **Hanya `RECENT_RATINGS = 7` rating terbaru** yang dipakai menghitung titik selera,
+     jadi selera lama otomatis tergantikan saat user memberi rating baru (film yang
+     dirating ulang pindah ke urutan paling belakang). Daftar "film yang dirating"
+     tetap menampilkan semua; yang dibatasi hanya perhitungan titik selera.
+
    Contoh nyata (suka: The Dark Knight, LOTR: Return of the King, Inception = 10;
    benci: Psycho):
 
