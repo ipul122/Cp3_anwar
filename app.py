@@ -25,6 +25,7 @@ st.set_page_config(page_title="IMDb Movie Assistant", page_icon="🎬", layout="
 # bertambah - yang scroll hanya bagian dalam panelnya.
 K_RECO = 5  # jumlah card rekomendasi
 K_RANDOM = 3  # jumlah card acak
+BAND_LOW, BAND_HIGH = 2.0, 5.0  # card acak diambil pada jarak 2-5x jangkauan rekomendasi
 LOG_HEIGHT = 520
 CHAT_HEIGHT = 520
 CARDS_HEIGHT = 500
@@ -115,10 +116,34 @@ def _unrated(movies) -> list[dict]:
     return [movie for movie in movies if movie["id"] not in ratings]
 
 
+def current_taste():
+    """(pusat selera, jangkauan, rekomendasi) dari rating user. None kalau belum ada rating."""
+    center = data.rating_center(st.session_state.ratings)
+    if center is None:
+        return None, None, []
+    recommendations = (st.session_state.cards if st.session_state.card_source != "acak"
+                       else data.pca_neighbors(center, k=K_RECO, exclude=st.session_state.ratings))
+    radius = max(float(np.hypot(m["PC1"] - center[0], m["PC2"] - center[1])) for m in recommendations)
+    return center, radius, recommendations
+
+
 def refresh_random():
-    """Card acak untuk eksplorasi: belum dirating dan tidak kembar dengan card rekomendasi."""
+    """Card acak = eksplorasi pada jarak BAND_LOW-BAND_HIGH x jangkauan rekomendasi.
+
+    Jadi bukan film dari ujung katalog yang tidak nyambung: di luar jangkauan
+    rekomendasi, tapi masih satu wilayah dengan pusat selera. Kalau belum ada rating
+    (belum ada pusat selera), dipakai acak murni.
+    """
     exclude = set(st.session_state.ratings) | {m["id"] for m in st.session_state.cards}
-    st.session_state.random_cards = data.random_movies(K_RANDOM, exclude=exclude)
+    center, radius, _ = current_taste()
+    cards = []
+    if center:
+        cards = data.band_movies(center, radius, limit=K_RANDOM, exclude=exclude,
+                                 low=BAND_LOW, high=BAND_HIGH)
+    if len(cards) < K_RANDOM:  # belum ada rating atau cincinnya terlalu kosong
+        cards += data.random_movies(K_RANDOM - len(cards),
+                                    exclude=exclude | {m["id"] for m in cards})
+    st.session_state.random_cards = cards
 
 
 def refresh_cards():
@@ -140,8 +165,7 @@ def save_rating(movie, score):
     workflow.log_event(st.session_state.trace, "rating", agent="user",
                        detail=f"{movie['Series_Title']} = {score}/10")
     refresh_cards()
-    if len(_unrated(st.session_state.random_cards)) < K_RANDOM:  # isi ulang card acak
-        refresh_random()
+    refresh_random()  # card eksplorasi selalu diambil ulang sesuai pusat selera terbaru
     st.rerun()
 
 
@@ -266,7 +290,8 @@ def card_panel():
             st.rerun()
 
     st.subheader("Card acak")
-    st.caption("film yang belum kamu rating (untuk eksplorasi)")
+    st.caption(f"eksplorasi: jarak {BAND_LOW:.0f}-{BAND_HIGH:.0f}x jangkauan rekomendasi"
+               if ratings else "film acak (belum ada rating user)")
     fresh = _unrated(st.session_state.random_cards)
     with st.container(height=RANDOM_HEIGHT, border=False):
         if not fresh:
@@ -278,8 +303,19 @@ def card_panel():
         st.rerun()
 
 
+def _ring(center, radius, label):
+    """Titik-titik lingkaran (untuk menggambar jangkauan/zona di scatter)."""
+    angle = np.linspace(0, 2 * np.pi, 90)
+    return pd.DataFrame({
+        "PC1": center[0] + radius * np.cos(angle),
+        "PC2": center[1] + radius * np.sin(angle),
+        "Series_Title": label,
+        "kelompok": label,
+    })
+
+
 def pca_panel():
-    """Kiri bawah: sebaran semua film di ruang PCA + titik selera + jangkauan rekomendasi."""
+    """Kiri bawah: sebaran film di PCA + titik selera + jangkauan & zona eksplorasi."""
     ratings = st.session_state.ratings
     frame = pd.DataFrame(data.pca_points())
     frame["kelompok"] = "semua film"
@@ -287,29 +323,28 @@ def pca_panel():
     caption = (f"{len(frame)} film di ruang PCA 2D. Beri rating supaya titik selera muncul: "
                "film yang disukai (>=6) menarik titik, film yang tidak disukai (<=5) menolaknya.")
 
-    center = data.rating_center(ratings)
+    center, radius, recommendations = current_taste()
     if center:
-        marks = [{"Series_Title": "selera kamu", "PC1": center[0], "PC2": center[1],
+        marks = [{"id": -1, "Series_Title": "selera kamu", "PC1": center[0], "PC2": center[1],
                   "kelompok": "selera kamu"}]
-        marks[0].update({"id": -1})
-        recommendations = (st.session_state.cards if st.session_state.card_source != "acak"
-                           else data.pca_neighbors(center, k=K_RECO, exclude=ratings))
         for movie in recommendations:
             marks.append({"id": movie["id"], "Series_Title": movie["Series_Title"],
                           "rating": movie["rating"], "PC1": movie["PC1"], "PC2": movie["PC2"],
                           "kelompok": "rekomendasi"})
-        radius = max(float(np.hypot(m["PC1"] - center[0], m["PC2"] - center[1])) for m in recommendations)
-        angle = np.linspace(0, 2 * np.pi, 90)
-        ring = pd.DataFrame({
-            "PC1": center[0] + radius * np.cos(angle),
-            "PC2": center[1] + radius * np.sin(angle),
-            "Series_Title": "batas jangkauan rekomendasi",
-            "kelompok": "jangkauan rekomendasi",
-        })
-        frame = pd.concat([frame, pd.DataFrame(marks), ring], ignore_index=True)
+        for movie in _unrated(st.session_state.random_cards):
+            marks.append({"id": movie["id"], "Series_Title": movie["Series_Title"],
+                          "rating": movie["rating"], "PC1": movie["PC1"], "PC2": movie["PC2"],
+                          "kelompok": "card acak"})
+        frame = pd.concat([
+            frame,
+            pd.DataFrame(marks),
+            _ring(center, radius, "jangkauan rekomendasi"),
+            _ring(center, radius * BAND_LOW, "batas dalam eksplorasi"),
+            _ring(center, radius * BAND_HIGH, "batas luar eksplorasi"),
+        ], ignore_index=True)
         caption = (f"titik selera kamu: PC1={center[0]:.2f}, PC2={center[1]:.2f} · "
-                   f"jangkauan {len(recommendations)} rekomendasi = {radius:.3f} "
-                   f"(jarak euclidean ke tetangga terjauh)")
+                   f"jangkauan {len(recommendations)} rekomendasi = {radius:.3f} · "
+                   f"card acak diambil pada {BAND_LOW:.0f}-{BAND_HIGH:.0f}x jangkauan")
 
     st.subheader("Visualisasi PCA")
     st.caption("Hover pada titik untuk melihat judul filmnya.")
