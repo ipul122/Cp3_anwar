@@ -18,6 +18,7 @@ from . import config, data, prompts, tools, vectorstore
 
 MAX_STEPS = 6
 MAX_CARDS = 10  # batas film yang dikirim ke UI dari hasil tool (jangan sampai card kebanjiran)
+LOOKUP_MIN = 5  # kalau cocok judul kurang dari ini, lookup dilengkapi hasil vector DB (Qdrant)
 
 # Guardrail: permintaan di luar topik film dan usaha mengubah instruksi ditolak
 # sebelum agent/tool dipanggil, jadi tidak ada token yang terbuang.
@@ -215,13 +216,27 @@ def analytics(state: State) -> dict:
 
 
 def lookup(state: State) -> dict:
-    """Agent lookup: ambil film dari JUDUL yang disebut user atau riwayat percakapan."""
+    """Agent lookup: judul -> cocokkan judul di SQLite, lalu lengkapi lewat vector DB (Qdrant).
+
+    Alurnya persis RAG: judul di-embed -> Qdrant mengembalikan id film -> SQLite
+    mengambil detailnya. Kecocokan judul persis tetap dipakai lebih dulu supaya
+    hasilnya tepat, dan Qdrant melengkapi kalau judulnya tidak persis / kurang.
+    """
     titles = state["query"] or state["question"]
     log_event(state["trace"], "tool", agent="lookup-agent", name="find_movies_by_title",
               detail=titles[:120])
     movies = json.loads(tools.find_movies_by_title.invoke({"titles": titles}))
     log_event(state["trace"], "tool_result", agent="lookup-agent", name="find_movies_by_title",
-              detail=f"{len(movies)} film")
+              detail=f"{len(movies)} film (cocok judul)")
+
+    if len(movies) < LOOKUP_MIN:  # belum cukup -> pakai pencarian semantik (embedding -> Qdrant)
+        log_event(state["trace"], "tool", agent="lookup-agent", name="search_movies", detail=titles[:120])
+        tambahan = json.loads(tools.search_movies.invoke({"query": titles}))
+        log_event(state["trace"], "tool_result", agent="lookup-agent", name="search_movies",
+                  detail=f"{len(tambahan)} film (vector DB) · rerank: {vectorstore.last_rerank}")
+        sudah = {m["id"] for m in movies}
+        movies += [m for m in tambahan if m["id"] not in sudah]
+
     movies = movies[:MAX_CARDS]
     hasil_state = {"context": state["context"] + [f"Detail film yang diminta: {data.for_llm(movies)}"]}
     if movies:

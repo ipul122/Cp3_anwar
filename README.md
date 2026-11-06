@@ -20,12 +20,13 @@ Start -> Supervisor -> (Retrieve | Analytics | Recommend | Lookup) -> Supervisor
 - **Analytics** = tool `movie_stats`: LLM menyusun SQL (prompt `imdb-sql-agent`)
   lalu dijalankan read-only ke SQLite. Kalau hasilnya daftar film, filmnya ikut
   dikirim ke UI sebagai card.
-- **Lookup** = tool `find_movies_by_title`: ambil film dari **judul** yang disebut user
-  atau ada di riwayat percakapan (mis. "tampilkan film ini", "mana linknya") tanpa
-  perlu embedding/rerank. Pencocokan judul **tahan beda tanda baca & aksen**:
-  "Spiderman" tetap ketemu `spider-man: into the spider-verse`, "Tokyo" ketemu
-  `tôkyô goddofâzâzu`, dan `wall-e` = `wall·e`. Kecocokan persis diutamakan, potongan
-  judul hanya untuk kata >= 4 huruf supaya "saw" tidak menarik "hacksaw ridge".
+- **Lookup** = tool `find_movies_by_title` + vector DB. Alurnya RAG: judul di-embed ->
+  **Qdrant mengembalikan id film** -> SQLite mengambil detailnya. Kecocokan judul persis
+  dipakai lebih dulu (supaya tepat), lalu kalau hasilnya kurang dari `LOOKUP_MIN = 5`
+  node ini memanggil `search_movies` (Qdrant + reranker) untuk melengkapi. Pencocokan judul
+  **tahan beda tanda baca & aksen**: "Spiderman" ketemu `spider-man: into the spider-verse`,
+  "Tokyo" ketemu `tôkyô goddofâzâzu`, `wall-e` = `wall·e`; "saw" tidak menarik "hacksaw ridge".
+  Console log menampilkan keduanya: `1 film (cocok judul)` + `5 film (vector DB) · rerank: reranker`.
 - **Recommend** = rekomendasi berbasis PCA dari rating user.
 - **Answer** memakai prompt `imdb-answer-agent` (jawaban hanya dari konteks RAG).
 

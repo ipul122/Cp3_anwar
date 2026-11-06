@@ -73,7 +73,9 @@ hasil ke supervisor, lalu supervisor memutuskan langkah berikutnya atau lanjut k
   <tr><td><code>retrieve</code></td><td>Pencarian semantik: embedding query &rarr; Qdrant &rarr; SQLite &rarr; reranker.</td><td><code>search_movies</code></td></tr>
   <tr><td><code>analytics</code></td><td>Pertanyaan angka: LLM menyusun SQL, dijalankan read-only; kalau hasilnya daftar film, filmnya dikirim ke UI.</td><td><code>movie_stats</code></td></tr>
   <tr><td><code>recommend</code></td><td>Rekomendasi personal dari rating user dengan kedekatan PCA.</td><td><code>pca_recommend</code></td></tr>
-  <tr><td><code>lookup</code></td><td>Ambil film dari <b>judul</b> yang disebut user/riwayat (mis. "tampilkan film ini", "mana linknya") tanpa embedding/rerank.</td><td><code>find_movies_by_title</code></td></tr>
+  <tr><td><code>lookup</code></td><td>Ambil film dari <b>judul</b> yang disebut user/riwayat (mis. "tampilkan film ini", "mana linknya").
+      Alurnya RAG: judul &rarr; cocok judul di SQLite, lalu bila hasilnya &lt; <code>LOOKUP_MIN = 5</code>
+      dilengkapi embedding &rarr; <b>Qdrant</b> &rarr; SQLite.</td><td><code>find_movies_by_title</code> + <code>search_movies</code></td></tr>
   <tr><td><code>answer</code></td><td>Menulis jawaban final dari konteks (prompt <code>imdb-answer-agent</code>).</td><td>&mdash;</td></tr>
 </table>
 
