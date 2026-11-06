@@ -83,6 +83,16 @@ def test_lookup_by_title():
     for judul_pendek in ("up", "pk", "saw"):
         assert data.by_titles([judul_pendek]), f"judul pendek '{judul_pendek}' harus ketemu"
 
+    # tanda baca & aksen diabaikan: "Spiderman" -> "spider-man: into the spider-verse"
+    assert any("spider" in m["Series_Title"] for m in data.by_titles(["Spiderman"])), \
+        "tanda baca harus diabaikan"
+    assert any("amelie" in data._normalize(m["Series_Title"]) for m in data.by_titles(["Amelie"])), \
+        "aksen harus diabaikan"
+
+    # film yang memang tidak ada di dataset tetap kosong (agent tidak boleh mengarang)
+    assert data.by_titles(["fast and furious"]) == []
+    assert data.by_titles(["spongebob"]) == []
+
     konteks = data.for_llm(data.by_titles([judul]))
     assert "imdb.com/find" in konteks, "link IMDb harus ada di konteks LLM"
     assert data.by_titles(["ab"]) == [], "potongan 2 huruf tidak dipakai (hindari salah ambil film)"

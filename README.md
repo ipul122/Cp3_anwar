@@ -22,7 +22,10 @@ Start -> Supervisor -> (Retrieve | Analytics | Recommend | Lookup) -> Supervisor
   dikirim ke UI sebagai card.
 - **Lookup** = tool `find_movies_by_title`: ambil film dari **judul** yang disebut user
   atau ada di riwayat percakapan (mis. "tampilkan film ini", "mana linknya") tanpa
-  perlu embedding/rerank.
+  perlu embedding/rerank. Pencocokan judul **tahan beda tanda baca & aksen**:
+  "Spiderman" tetap ketemu `spider-man: into the spider-verse`, "Tokyo" ketemu
+  `tôkyô goddofâzâzu`, dan `wall-e` = `wall·e`. Kecocokan persis diutamakan, potongan
+  judul hanya untuk kata >= 4 huruf supaya "saw" tidak menarik "hacksaw ridge".
 - **Recommend** = rekomendasi berbasis PCA dari rating user.
 - **Answer** memakai prompt `imdb-answer-agent` (jawaban hanya dari konteks RAG).
 

@@ -180,7 +180,9 @@ final       | jawaban + 10 card film di panel kanan</pre>
   <tr><td><code>by_ids(ids)</code></td><td>Ambil film berdasarkan id (urutan mengikuti input).</td></tr>
   <tr><td><code>random_movies(limit, exclude)</code></td><td>Film acak (<code>ORDER BY RANDOM()</code>).</td></tr>
   <tr><td><code>imdb_url(movie)</code></td><td>Link IMDb (judul + tahun). Dipakai UI untuk poster/judul <b>dan</b> dikirim ke konteks LLM.</td></tr>
-  <tr><td><code>by_titles(titles)</code></td><td>Cari film dari daftar <b>judul</b>: tahun dalam kurung dibuang, cocok persis diutamakan, baru potongan judul (LIMIT 5).</td></tr>
+  <tr><td><code>by_titles(titles)</code></td><td>Cari film dari daftar <b>judul</b>: tahun dibuang, tanda baca &amp; aksen diabaikan
+      ("Spiderman" ketemu <i>spider-man: into the spider-verse</i>, "Tokyo" ketemu <i>tôkyô goddofâzâzu</i>),
+      kecocokan persis diutamakan, potongan judul hanya untuk kata &ge; 4 huruf.</td></tr>
   <tr><td><code>rating_center(ratings)</code></td><td><b>Titik selera</b> (lihat 4.3) &mdash; hanya dari <code>RECENT_RATINGS = 7</code> rating terbaru.</td></tr>
   <tr><td><code>pca_neighbors(center, k, exclude)</code></td><td><code>k</code> film terdekat dari titik selera (jarak euclidean 2D), film yang sudah dirating dibuang.</td></tr>
   <tr><td><code>pca_points()</code></td><td>Semua titik <code>PC1, PC2</code> + judul + rating untuk scatter plot.</td></tr>

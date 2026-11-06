@@ -3,6 +3,8 @@
 import json
 import re
 import sqlite3
+import unicodedata
+from functools import lru_cache
 from urllib.parse import quote_plus
 
 from . import config
@@ -133,36 +135,55 @@ def to_json(records: list[dict]) -> str:
     return json.dumps(records, ensure_ascii=False, default=str)
 
 
-def by_titles(titles: list[str]) -> list[dict]:
-    """Cari film dari daftar judul (case-insensitive).
+def _normalize(text: str) -> str:
+    """Huruf kecil, aksen dibuang, semua tanda baca jadi spasi."""
+    text = unicodedata.normalize("NFKD", str(text).lower())
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
-    - Tahun pada judul dibuang dulu, jadi "Tumbbad (2018)" tetap ketemu "tumbbad".
-    - Kecocokan PERSIS diutamakan. Potongan judul (LIKE) hanya dipakai kalau tidak ada
-      yang persis DAN katanya >= 4 huruf - supaya judul pendek seperti "up", "pk", "her"
-      tidak menarik film lain yang kebetulan mengandung huruf itu.
+
+def _clean_title(text: str) -> str:
+    """Buang tahun dari judul: "Tumbbad (2018)" -> "Tumbbad"."""
+    text = re.sub(r"\(\s*(19|20)\d{2}\s*\)", " ", str(text))
+    text = re.sub(r"\b(19|20)\d{2}\b", " ", text)
+    return text.strip(" \t\"'.,;:-–—()[]")
+
+
+@lru_cache(maxsize=1)
+def _title_index() -> list[tuple[int, str, str]]:
+    """(id, judul ternormalisasi, judul tanpa spasi) untuk semua film. Di-cache per proses."""
+    index = []
+    for row in query("SELECT id, Series_Title FROM imdb_movies"):
+        norm = _normalize(row["Series_Title"])
+        index.append((row["id"], norm, norm.replace(" ", "")))
+    return index
+
+
+def by_titles(titles: list[str]) -> list[dict]:
+    """Cari film dari daftar judul - tahan beda tanda baca, aksen, dan spasi.
+
+    - Tahun di judul dibuang: "Tumbbad (2018)" -> "Tumbbad".
+    - "Spiderman" tetap ketemu "spider-man: into the spider-verse" (tanda baca diabaikan).
+    - "Tokyo" tetap ketemu "tôkyô goddofâzâzu" (aksen diabaikan).
+    - Kecocokan persis diutamakan; potongan judul hanya untuk kata >= 4 huruf, supaya
+      judul pendek seperti "up"/"saw" tidak menarik film lain yang kebetulan mirip.
     """
-    found = {}
+    index = _title_index()
+    ditemukan: list[int] = []
     for title in titles:
-        title = re.sub(r"\(\s*(19|20)\d{2}\s*\)", " ", title)  # buang "(2018)"
-        title = re.sub(r"\b(19|20)\d{2}\b", " ", title)  # buang tahun berdiri sendiri
-        title = title.strip(" \t\"'.,;:-–—()[]")
-        if len(title) < 2:
+        needle = _normalize(_clean_title(title))
+        if len(needle) < 2:
             continue
-        exact = query(
-            f"SELECT {FIELDS} FROM imdb_movies WHERE LOWER(Series_Title) = LOWER(?)", (title,)
-        )
-        if exact:
-            rows = exact
-        elif len(title) >= 4:
-            rows = query(
-                f"SELECT {FIELDS} FROM imdb_movies WHERE LOWER(Series_Title) LIKE LOWER(?) LIMIT 5",
-                (f"%{title}%",),
-            )
-        else:
-            rows = []
-        for row in rows:
-            found.setdefault(row["id"], row)
-    return list(found.values())
+        padat = needle.replace(" ", "")
+        cocok = [movie_id for movie_id, norm, compact in index
+                 if norm == needle or compact == padat]
+        if not cocok and len(padat) >= 4:
+            cocok = [movie_id for movie_id, norm, compact in index
+                     if needle in norm or padat in compact][:5]
+        for movie_id in cocok:
+            if movie_id not in ditemukan:
+                ditemukan.append(movie_id)
+    return by_ids(ditemukan)
 
 
 def for_llm(movies: list[dict]) -> str:
