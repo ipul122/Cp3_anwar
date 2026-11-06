@@ -184,14 +184,14 @@ Setiap percakapan dikirim ke Langfuse (SDK v5, OpenTelemetry) dengan
 
 - Poster diambil dari kolom `Poster_Link` (SQLite) dan dinaikkan resolusinya ke
   `._V1_SX300.jpg` karena link aslinya cuma 67px.
-- Saat ingest, seluruh kolom teks termasuk `Poster_Link` di-lowercase, sehingga URL
-  Amazon dibalas `400`. Kolom itu diperbaiki dari CSV aslinya dengan
-  `poetry run python fix_posters.py` (1000/1000 baris) — sudah ikut ter-commit.
+- Saat ingest, seluruh kolom teks termasuk `Poster_Link` di-lowercase sehingga URL
+  Amazon dibalas `400`. Kolom itu sudah diperbaiki dari CSV aslinya (1000/1000 baris)
+  dan hasilnya sudah ikut ter-commit di `data/database.db`.
 - Sekitar 1 dari 6 URL di dataset aslinya memang sudah mati di sisi Amazon. Untuk itu
   poster diambil sekali per URL (`@st.cache_data`), dan kalau gagal ditampilkan
   tulisan "poster tidak tersedia" — bukan gambar rusak.
 
-## Kualitas rekomendasi PCA (hasil `poetry run python eval_pca.py`)
+## Kualitas rekomendasi PCA (hasil pengukuran pada 1000 film)
 
 Diukur pada 1000 film di database.
 
@@ -216,7 +216,9 @@ Temuan:
 ```bash
 poetry install
 copy .env.example .env      # Linux/macOS: cp .env.example .env
+poetry run python sync_prompts.py      # kirim 3 prompt ke Langfuse
 poetry run streamlit run app.py
+poetry run python check.py             # 7 self-test tanpa panggilan LLM
 ```
 
 Untuk Streamlit Cloud, masukkan seluruh isi `.env` ke bagian **Secrets**.
@@ -224,19 +226,23 @@ Untuk Streamlit Cloud, masukkan seluruh isi `.env` ke bagian **Secrets**.
 ## Struktur
 
 ```
-app.py                          # UI Streamlit
-src/imdb_anwar/config.py        # env, client LLM/embedding/Qdrant/Langfuse
-src/imdb_anwar/prompts.py       # prompt dari Langfuse + fallback
-src/imdb_anwar/data.py          # SQLite: film, rating center, tetangga PCA
-src/imdb_anwar/vectorstore.py   # embed, Qdrant, reranker
-src/imdb_anwar/tools.py         # tool agent: search_movies, movie_stats
-src/imdb_anwar/workflow.py      # graph LangGraph + log flow agent/tool + guardrail
-sync_prompts.py                 # kirim ulang prompt README_prompt.md ke Langfuse
-fix_posters.py                  # perbaiki Poster_Link di database dari CSV asli
-eval_pca.py                     # ukur kualitas rekomendasi PCA 2D
-check.py                        # cek cepat tanpa panggilan LLM
-report.pdf / report.html        # laporan alur kode & kegunaan (PDF dari report.html)
+app.py                          # UI Streamlit (5 panel)
+src/imdb_anwar/config.py        # env + client LLM/embedding/Qdrant/Langfuse
+src/imdb_anwar/prompts.py       # ambil prompt dari Langfuse
+src/imdb_anwar/data.py          # SQLite: film, cari judul, titik selera, tetangga PCA
+src/imdb_anwar/vectorstore.py   # embed -> Qdrant -> reranker
+src/imdb_anwar/tools.py         # tool agent: search_movies, find_movies_by_title, movie_stats
+src/imdb_anwar/workflow.py      # graph LangGraph + guardrail + log token/biaya
+sync_prompts.py                 # kirim prompt README_prompt.md ke Langfuse
+check.py                        # 7 self-test tanpa panggilan LLM
+view_graph.py                   # tulis diagram graph ke graph_output/workflow.png
+data/database.db                # SQLite 1000 film (+ PC1, PC2)
+data/imdb_top_1000.csv          # data mentah (sumber ingest)
+data/ingest.ipynb               # notebook: embedding -> Qdrant
+pca/pca_model.ipynb             # notebook: PCA 2D -> kolom PC1/PC2
+pca/pca_model.joblib            # model PCA hasil notebook
+graph_output/workflow.png       # diagram graph (dipakai di report & video)
+README.md                       # dokumentasi ini
+README_prompt.md                # teks 3 prompt untuk dipasang di Langfuse
+report.pdf                      # laporan alur kode & kegunaan tiap bagian
 ```
-
-Mengubah laporan: edit `report.html` lalu cetak ulang, mis.
-`msedge --headless=new --print-to-pdf=report.pdf report.html`.
