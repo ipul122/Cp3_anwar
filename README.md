@@ -1,253 +1,99 @@
 # IMDb Movie Assistant
 
-Chatbot rekomendasi film dengan arsitektur **multi-agent** (LangGraph) + RAG,
-UI **Streamlit**, prompt dikelola di **Langfuse**, dan vector database
-**Qdrant Cloud**.
+Chatbot film berbasis **multi-agent (LangGraph)** dan **RAG** atas 1000 film IMDb Top.
+Pengguna bertanya dalam bahasa natural, memberi rating, dan mendapat rekomendasi.
 
-Sumber data: SQLite `data/database.db` (tabel `imdb_movies`, 1000 film + kolom
-`PC1`/`PC2` hasil PCA 2D dari embedding). Qdrant hanya menyimpan vektor + payload
-`{"sqlite_id": ...}`, sehingga data teks tetap diambil dari SQLite.
+| Bagian | Teknologi |
+|---|---|
+| Otak agent | LangGraph (supervisor + 4 agent + answer) |
+| LLM, embedding, reranker | OpenRouter |
+| Pencarian makna (RAG) | Qdrant Cloud, payload hanya `sqlite_id` |
+| Data film | SQLite `data/database.db` (read-only) |
+| Prompt dan monitoring | Langfuse |
+| Tampilan | Streamlit |
 
-## Alur
+## Cara kerja
 
+```mermaid
+flowchart LR
+    Q[Pertanyaan] --> G{Guardrail<br/>kata kunci}
+    G -- di luar topik --> X[Ditolak, 0 token]
+    G -- lolos --> S[Supervisor<br/>LLM]
+    S --> R1[retrieve] --> S
+    S --> R2[analytics] --> S
+    S --> R3[lookup] --> S
+    S --> R4[recommend] --> S
+    S --> A[answer] --> OUT[Jawaban + kartu film]
 ```
-Start -> Supervisor -> (Retrieve | Analytics | Recommend | Lookup) -> Supervisor -> Answer -> Stop
-```
 
-- **Supervisor** memilih satu langkah (route) memakai prompt `imdb-supervisor`.
-- **Retrieve** = tool `search_movies`: embedding query -> Qdrant -> SQLite ->
-  **reranker** (`qwen/qwen3-reranker-8b`, bisa diganti via env `Rerank_MODEL`).
-- **Analytics** = tool `movie_stats`: LLM menyusun SQL (prompt `imdb-sql-agent`)
-  lalu dijalankan read-only ke SQLite. Kalau hasilnya daftar film, filmnya ikut
-  dikirim ke UI sebagai card.
-- **Lookup** = tool `find_movies_by_title`. Judul dicocokkan di SQLite dan hasilnya dikembalikan
-  sebagai `{"found": [...], "not_found": [...]}`. Film yang cocok judul dikirim apa adanya
-  (tidak ditambal film lain, jadi "film spiderman" tidak memunculkan Avengers/Kick-Ass), dan
-  judul yang tidak ketemu dilaporkan eksplisit ke LLM sebagai "sudah dicek, tidak ada". Hanya
-  kalau **tidak ada satu pun judul yang cocok**, node ini memanggil `search_movies` (embedding ->
-  Qdrant -> id -> SQLite + reranker) dan hasilnya diberi label "MIRIP, bukan cocok judul".
-  Pencocokan judul **tahan beda tanda baca, aksen, dan salah ketik**: "Spiderman" ketemu
-  `spider-man: into the spider-verse`, "Tokyo" ketemu `tôkyô goddofâzâzu`, "Discable Me" ketemu
-  `despicable me` (fuzzy, `FUZZY_CUTOFF = 0.8`, hanya untuk judul >= 5 huruf); "saw" tidak
-  menarik "hacksaw ridge". Console log: `1 film cocok judul · tidak ada: minions`.
-- **Pengaman anti-halusinasi**: kalau supervisor menjawab tanpa tool apa pun, `answer` diberi
-  catatan sistem agar tidak menyatakan film ada/tidak ada di database.
-- **Recommend** = rekomendasi berbasis PCA dari rating user.
-- **Answer** memakai prompt `imdb-answer-agent` (jawaban hanya dari konteks RAG).
+Supervisor memilih **satu langkah** per giliran, lalu kontrol kembali padanya sampai ia memilih `answer`.
+Satu agent hanya boleh dipakai sekali per pertanyaan, jadi alurnya tidak berputar.
 
-Tiap film di konteks membawa kunci `link` (halaman IMDb) sehingga agent bisa memberi
-link kalau diminta. Konteks dijaga ringkas: `overview` dipotong 200 karakter, hasil SQL
-dibatasi 10 baris, dan film yang dikirim ke UI maksimal `MAX_CARDS = 10`.
+### Agent dan tool
 
-## Fitur Streamlit (2 baris, 5 panel)
+| Agent | Dipakai untuk | Tool / sumber | Contoh pertanyaan |
+|---|---|---|---|
+| `retrieve` | Cari film dari **deskripsi** | `search_movies`: embedding → Qdrant → SQLite → reranker | "film perang dunia kedua yang menyedihkan" |
+| `analytics` | **Angka dan statistik** | `movie_stats`: LLM menulis SQL → SQLite | "5 sutradara dengan film terbanyak" |
+| `lookup` | Film dari **judul** (tahan salah ketik) | `find_movies_by_title`: SQLite | "film discable me?" |
+| `recommend` | Rekomendasi dari **rating user** | PCA 2D, tanpa LLM (`pca.py`) | "rekomendasikan berdasarkan rating saya" |
+| `answer` | Menyusun jawaban akhir | LLM, hanya dari konteks yang terkumpul | (selalu terakhir) |
 
-Tinggi semua panel tetap: halaman tidak makin panjang saat chat atau rating bertambah —
-yang scroll hanya isi panelnya (`LOG_HEIGHT`, `CHAT_HEIGHT`, `CARDS_HEIGHT`,
-`PCA_HEIGHT`, `RATED_HEIGHT` di `app.py`). Daftar chat otomatis turun ke pesan
-terbaru (`autoscroll`).
+### Pengaman
 
-**Baris atas** (`st.columns([1, 2.2, 1.2])`):
+- **Guardrail 2 lapis**: (1) daftar kata kunci di kode, 0 token; (2) supervisor LLM menandai `blocked` untuk yang lolos.
+- **Anti-halusinasi**: `lookup` melaporkan judul yang *sudah dicek dan tidak ada*; kalau tidak ada tool yang jalan,
+  `answer` dilarang mengklaim film ada atau tidak ada di database.
+- **SQL aman**: database dibuka read-only, dan hanya `SELECT` yang dijalankan.
+- **Batas biaya per sesi** (`LIMIT_USD`): lewat batas, chat dimatikan sampai halaman di-refresh.
 
-1. **Kiri - console log interaktif**: token, biaya (USD), dan log flow yang menyebut
-   **siapa yang dipanggil** (`route agent=supervisor`, `tool agent=retrieve-agent
-   name=search_movies`, `llm name=answer tokens=... cost=...`, `warn`, `final`),
-   termasuk status reranker (`rerank: reranker` / `llm-fallback`). Tiap jenis log
-   diberi warna berbeda supaya alurnya mudah dibaca.
-2. **Tengah - Chatbot**: percakapan dengan chat history. Jawaban yang menyebut film
-   menampilkan **poster (klik ke IMDb)** dan **rating 1-10 + tombol Simpan** untuk tiap
-   film — jadi rating juga bisa diberikan langsung dari chatbot (film yang sudah
-   dirating ditandai "✓ dirating 9/10"). Ada juga expander "Data dari vector database
-   (Qdrant)" sebagai bukti jawaban berasal dari RAG, dan indikator loading saat agent
-   memproses.
-3. **Kanan - Card rekomendasi + Card acak**: dua bagian terpisah.
-   - **Card rekomendasi** (`K_RECO = 5`): tiap card menampilkan **poster + judul
-     (link IMDb) + genre + rating IMDb**, slider rating 1-10, tombol simpan.
-   - **Card acak** (`K_RANDOM = 3`): acak murni dari seluruh katalog
-     (`ORDER BY RANDOM()`), hanya membuang film yang sudah dirating dan film yang
-     sedang tampil sebagai rekomendasi — jadi praktis selalu **di luar area
-     rekomendasi**. Tombol **Acak lagi** untuk ganti; card yang sudah dirating
-     otomatis hilang dari daftar.
-
-     Ukuran (30 profil acak): jangkauan rekomendasi hanya berisi ~5 film dari 1000,
-     sehingga **~99.5% card acak otomatis jatuh di luar jangkauan** (jarak median
-     ~11x radius). Karena itu "mungkin anda suka" sifatnya kebetulan (~0.5%). Titik
-     card acak tetap ditandai di visualisasi PCA sebagai kelompok "card acak" supaya
-     posisinya di luar area rekomendasi terlihat.
-
-   Sumber card rekomendasi:
-   - **acak** saat sesi baru (belum ada rating),
-   - **hasil jawaban chatbot** (film yang baru disebut agent) — caption card
-     menampilkan pertanyaan yang menghasilkannya,
-   - **tetangga terdekat PCA** begitu ada rating: **titik selera** = rata-rata
-     `PC1, PC2` film yang **disukai** (rating >= 6, dibobot nilai rating) yang
-     **digeser menjauh** dari film yang **tidak disukai** (rating <= 5). Makin rendah
-     ratingnya makin kuat dorongan tolaknya (rating 5 = 20%, rating 1 = 100% dari
-     `PUSH_AWAY = 0.5`). Jadi film yang dibenci **menolak** rekomendasi, bukan
-     menariknya. Setelah itu diambil `K_RECO` tetangga terdekat (jarak euclidean),
-     dan film yang sudah dirating dibuang.
-
-     **Hanya `RECENT_RATINGS = 7` rating terbaru** yang dipakai menghitung titik selera,
-     jadi selera lama otomatis tergantikan saat user memberi rating baru (film yang
-     dirating ulang pindah ke urutan paling belakang).
-
-     Yang tidak dibatasi: **agent/chatbot menerima SELURUH daftar rating** sebagai konteks
-     (urut dari yang paling lama), jadi pertanyaan seperti "saya ini orang yang seperti
-     apa" dijawab dari semua film yang pernah dirating; daftar "film yang dirating" di
-     panel kanan juga menampilkan semuanya.
-
-   Contoh nyata (suka: The Dark Knight, LOTR: Return of the King, Inception = 10;
-   benci: Psycho):
-
-   | Rating Psycho | Jarak pusat selera ke Psycho | Tetangga terdekat |
-   | --- | --- | --- |
-   | tidak dirating | 0.416 | Batman Begins, 2001: A Space Odyssey |
-   | 8 | **0.329** (tertarik) | - |
-   | 5 | 0.458 (ditolak pelan) | - |
-   | 1 | **0.624** (ditolak kuat) | Star Wars, The Avengers, Guardians of the Galaxy, Avatar |
-
-**Baris bawah** (`st.columns([2.2, 1.2])`):
-
-4. **Kiri - Visualisasi PCA**: scatter `PC1` vs `PC2` untuk **seluruh 1000 film**
-   (`st.vega_lite_chart`, dikelompokkan: semua film / film yang kamu rating / selera
-   kamu / rekomendasi / jangkauan). **Hover pada titik menampilkan judul film**,
-   rating IMDb, PC1, PC2, dan kelompoknya. Titik "selera kamu" adalah centroid rating,
-   dan **jangkauan rekomendasi** digambar sebagai lingkaran sejauh jarak euclidean ke
-   tetangga terjauh.
-5. **Kanan - Daftar film yang dirating user 1-10**: daftar ringkas (font kecil,
-   `RATED_HEIGHT = 150`) + tombol hapus semua rating.
-
-## Guardrail (anti jailbreak)
-
-- Pola jailbreak ("abaikan instruksi", "system prompt", "kamu sekarang adalah",
-  "act as", ...) dan permintaan di luar topik film ("buatkan kode", "resep",
-  "terjemahkan", ...) ditolak **sebelum** agent dipanggil — tidak ada token terpakai.
-  Lihat `JAILBREAK_PATTERNS`/`OFF_TOPIC_PATTERNS` di `src/imdb_anwar/workflow.py`.
-- Penolakan tetap tercatat di Langfuse sebagai span `guardrail` dan di console log
-  sebagai `warn`, jadi tetap terpantau.
-- Di UI muncul gambar **`data/jailbreak.jpg`** di **akhir percakapan** ketika turn
-  terakhir ditolak. Penandanya `state["blocked"]`, yang diisi **dua lapis**:
-  1. **pola kode** (`_guardrail_hit`) — deterministik, 0 token. Mencakup "buatkan kode",
-     "python code", "hello world", "script", "resep", "terjemahkan", dsb.
-  2. **keputusan supervisor** (`Decision.blocked = true`) — untuk kalimat yang tidak
-     tertangkap pola (mis. "tolong tuliskan fungsi untuk mengurutkan angka"), dengan
-     catatan `warn agent=supervisor` di console log.
-- Pertanyaan film biasa tidak ikut terblokir (diuji: "rekomendasi film monty python",
-  "film tentang seorang programmer" tetap lolos).
-- **Anti-halusinasi**: prompt answer melarang menyebut judul film yang tidak ada di konteks
-  ("kalau filmnya tidak ada, katakan tidak ada di database IMDb Top 1000 - jangan menebak").
-  Ini memperbaiki kasus nyata: pertanyaan "pendapatan genre apa dan film apa 2019-2021"
-  dulu dijawab dengan film **Spider-Man: No Way Home** (tidak ada di dataset) karena SQL-nya
-  hanya mengembalikan angka agregat.
-- **Konteks tool lebih lengkap**: prompt SQL mewajibkan menyertakan `id` + `Series_Title`
-  kalau user menanyakan filmnya juga, dan menghitung genre per genre tunggal (kolom `Genre`
-  berisi gabungan seperti "action, adventure, drama").
-- **Label bukti konteks dinamis**: expander di bawah jawaban sekarang menyebut sumber yang
-  benar — "Data dari vector database (Qdrant)" hanya kalau tool `search_movies` dipakai;
-  kalau tidak, jadi "Konteks tool: movie_stats" / "Konteks percakapan (tanpa tool)".
-- **Batas data**: pertanyaan yang butuh pendapatan hanya mencakup film yang punya
-  `Gross_cleaned`. Contoh: dari 29 film rilis 2019-2021 di database, hanya 16 yang ada
-  datanya; prompt meminta agent menyebut cakupan ini di jawaban.
-
-## Batas biaya per sesi
-
-- `LIMIT_USD` (default `0.001`, bisa diubah lewat env) = batas biaya sesi Streamlit.
-- Kalau total biaya sesi sudah lewat: gambar **`data/limit_token.jpg`** muncul di
-  **akhir percakapan** (bukan di atas), kolom input **dimatikan**
-  (`st.chat_input(disabled=True)`), dan `ask()` berhenti sebelum memanggil agent.
-  Rating film tetap bisa diberikan karena tidak memakai token.
-- **Refresh halaman = sesi baru** (Streamlit membuat `st.session_state` baru), jadi
-  biaya mulai dari 0 dan chatbot aktif kembali — persis seperti aplikasi baru dibuka.
-
-
-## Prompt di Langfuse
-
-Prompt **hanya** ada di Langfuse (label `production`) — tidak ada teks prompt di kode.
-`src/imdb_anwar/prompts.py` hanya mengambil prompt dan mengisi variabelnya.
-Teks untuk dipasang di Langfuse ada di **`README_prompt.md`**; cara cepat:
-`poetry run python sync_prompts.py`.
-
-## Observability (Langfuse)
-
-Setiap percakapan dikirim ke Langfuse (SDK v5, OpenTelemetry) dengan
-`session_id`, `tags`, span per node, dan `generation` per panggilan LLM
-(model + token + biaya). Prompt yang dipakai ikut tercatat.
-
-## Catatan model & reranker
-
-- Reranker (`Rerank_MODEL`, default `qwen/qwen3-reranker-8b`) dipanggil lewat endpoint
-  `/api/v1/rerank` OpenRouter. Kalau gagal (rate limit `429` atau provider diblokir
-  karena akun dibatasi "ZDR only" di Settings → Privacy), urutan hasil diambil dari
-  **LLM sebagai cadangan** (`llm-fallback`). Sumber urutan selalu tercatat di console
-  log Streamlit pada baris `tool_result`.
-  Catatan: `cohere/*` dan `mongodb/rerank-2.5` diblokir ZDR di akun ini, sementara
-  `qwen/qwen3-reranker-8b` bisa dipakai.
-- `LLM_MODEL` dipakai untuk chatting **dan** panggilan tool/structured. Model
-  `inclusionai/ling-3.1-flash` sempat menggantung/`429` untuk panggilan tool
-  ber-tools, jadi default di sini `google/gemini-2.5-flash`.
-
-## Poster film
-
-- Poster diambil dari kolom `Poster_Link` (SQLite) dan dinaikkan resolusinya ke
-  `._V1_SX300.jpg` karena link aslinya cuma 67px.
-- Saat ingest, seluruh kolom teks termasuk `Poster_Link` di-lowercase sehingga URL
-  Amazon dibalas `400`. Kolom itu sudah diperbaiki dari CSV aslinya (1000/1000 baris)
-  dan hasilnya sudah ikut ter-commit di `data/database.db`.
-- Sekitar 1 dari 6 URL di dataset aslinya memang sudah mati di sisi Amazon. Untuk itu
-  poster diambil sekali per URL (`@st.cache_data`), dan kalau gagal ditampilkan
-  tulisan "poster tidak tersedia" — bukan gambar rusak.
-
-## Kualitas rekomendasi PCA (hasil pengukuran pada 1000 film)
-
-Diukur pada 1000 film di database.
-
-| Ukuran | PCA 2D (dipakai sekarang) | Embedding penuh 1536d | Acak / baseline |
-| --- | --- | --- | --- |
-| Genre sama di 5 tetangga terdekat | 0.815 | 0.945 | 0.658 |
-| RMSE prediksi rating (k=10) | 0.292 | 0.266 | 0.275 (tebak rata-rata global) |
-
-Temuan:
-
-- PCA 2D hanya menyimpan **6.9%** variance dari embedding 1536 dimensi (PC1 3.6%, PC2 3.3%).
-- PC1 berkorelasi dengan tahun rilis (-0.48), PC2 dengan jumlah vote (-0.47); korelasi ke
-  rating hampir 0. Jadi PC1/PC2 lebih banyak menyimpan "era" dan "popularitas" daripada selera.
-- **Cukup baik untuk kemiripan tema** (81.5% tetangganya berbagi genre, +15.7 poin di atas acak).
-- **Lemah untuk memprediksi selera**: RMSE 0.292 justru lebih buruk dari sekadar menebak
-  rata-rata global (0.275). Penyebabnya informasi yang hilang saat diproyeksikan ke 2D.
-- Upgrade yang disarankan (opsional, tanpa mengubah alur): cari tetangga di ruang
-  embedding penuh lewat Qdrant (0.945 / 0.266), dan pakai PC1/PC2 hanya untuk visualisasi.
-
-## Setup
+## Jalankan
 
 ```bash
 poetry install
-copy .env.example .env      # Linux/macOS: cp .env.example .env
-poetry run python sync_prompts.py      # kirim 3 prompt ke Langfuse
+cp .env.example .env            # Windows: copy .env.example .env, lalu isi kuncinya
 poetry run streamlit run app.py
-poetry run python check.py             # 7 self-test tanpa panggilan LLM
+poetry run python tests/test_basics.py   # 12 tes offline (tanpa LLM / internet)
 ```
 
-Untuk Streamlit Cloud, masukkan seluruh isi `.env` ke bagian **Secrets**.
+Prompt disimpan di **Langfuse**, bukan di kode. Salinan teksnya ada di [prompts_reference/](prompts_reference/);
+untuk akun Langfuse baru, buat 3 prompt dengan nama dan label `production` yang sama, lalu isi dengan teks itu.
 
-## Struktur
+## Skenario demo
+
+| Ketik | Yang terjadi |
+|---|---|
+| `film discable me ?` | `lookup` mengenali salah ketik → **Despicable Me** |
+| `rekomendasikan film perang dunia kedua yang menyedihkan` | `retrieve` → RAG lewat Qdrant |
+| `5 sutradara dengan film terbanyak, sebutkan juga filmnya` | `analytics` → SQL, hasil tampil di chat |
+| beri rating 2-3 film, lalu `rekomendasikan berdasarkan rating saya` | `recommend` → tetangga terdekat di peta PCA |
+| `apakah film Minions ada di database?` | Jujur "tidak ada", lalu menawarkan film mirip |
+| `tolong buatkan kode python hello world` | Guardrail menolak tanpa memanggil LLM |
+
+Panel kiri (console log) menampilkan siapa yang dipanggil, token, dan biaya tiap langkah.
+Batas biaya bawaan sangat kecil (`0.001` USD) supaya mudah didemokan; naikkan lewat `LIMIT_USD` di `.env`.
+
+## Peta file
 
 ```
-app.py                          # UI Streamlit (5 panel)
-src/imdb_anwar/config.py        # env + client LLM/embedding/Qdrant/Langfuse
-src/imdb_anwar/prompts.py       # ambil prompt dari Langfuse
-src/imdb_anwar/data.py          # SQLite: film, cari judul, titik selera, tetangga PCA
-src/imdb_anwar/vectorstore.py   # embed -> Qdrant -> reranker
-src/imdb_anwar/tools.py         # tool agent: search_movies, find_movies_by_title, movie_stats
-src/imdb_anwar/workflow.py      # graph LangGraph + guardrail + log token/biaya
-sync_prompts.py                 # kirim prompt README_prompt.md ke Langfuse
-check.py                        # 7 self-test tanpa panggilan LLM
-view_graph.py                   # tulis diagram graph ke graph_output/workflow.png
-data/database.db                # SQLite 1000 film (+ PC1, PC2)
-data/imdb_top_1000.csv          # data mentah (sumber ingest)
-data/ingest.ipynb               # notebook: embedding -> Qdrant
-pca/pca_model.ipynb             # notebook: PCA 2D -> kolom PC1/PC2
-pca/pca_model.joblib            # model PCA hasil notebook
-graph_output/workflow.png       # diagram graph (dipakai di report & video)
-README.md                       # dokumentasi ini
-README_prompt.md                # teks 3 prompt untuk dipasang di Langfuse
-report.pdf                      # laporan alur kode & kegunaan tiap bagian
+app.py                       Halaman Streamlit: state sesi + susunan 5 panel
+src/imdb_anwar/
+  workflow.py                Graph LangGraph: supervisor, 4 agent, answer, run()
+  tools.py                   3 tool: search_movies, find_movies_by_title, movie_stats
+  vectorstore.py             RAG: embed -> Qdrant -> rerank
+  titles.py                  Pencocokan judul (abaikan tanda baca, aksen, salah ketik)
+  pca.py                     Titik selera dari rating dan tetangga terdekat
+  database.py                Query SQLite + format film untuk LLM dan UI
+  guardrail.py               Daftar kata kunci terlarang
+  tracing.py                 Panggil LLM + catat log, token, biaya, Langfuse
+  prompts.py                 Ambil prompt dari Langfuse
+  config.py                  .env dan client (LLM, Qdrant, Langfuse)
+  ui.py                      Komponen gambar: poster, kartu, grafik PCA
+tests/test_basics.py         Tes offline
+prompts_reference/           Teks 3 prompt Langfuse (dokumentasi)
+docs/CATATAN.md              Catatan detail: fitur UI, hasil ukur PCA, catatan model
+data/                        database.db, CSV asli, ingest.ipynb (embedding -> Qdrant)
+pca/pca_model.ipynb          Notebook pembuatan kolom PC1/PC2
+assets/                      Gambar banner (jailbreak, batas biaya)
+graph_output/workflow.png    Diagram graph (dibuat oleh view_graph.py)
 ```

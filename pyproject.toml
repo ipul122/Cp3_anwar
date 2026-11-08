@@ -1,7 +1,7 @@
 [project]
 name = "imdb-anwar"
 version = "0.1.0"
-description = ""
+description = "Chatbot rekomendasi film IMDb: multi-agent LangGraph + RAG (Qdrant) + Streamlit"
 authors = [
     {name = "ipul122",email = "ipulsayfulloh18@gmail.com"}
 ]
@@ -10,6 +10,7 @@ requires-python = ">=3.13,<4.0.0"
 dependencies = [
     "streamlit (>=1.66.1,<2.0.0)",
     "python-dotenv (>=1.2.4,<2.0.0)",
+    "httpx (>=0.28.0,<1.0.0)",
     "openai (>=3.45.0,<4.0.0)",
     "qdrant-client (>=1.20.0,<2.0.0)",
     "pandas (>=3.1.0,<4.0.0)",

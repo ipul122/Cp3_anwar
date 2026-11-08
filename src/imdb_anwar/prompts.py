@@ -1,8 +1,8 @@
 """Manajemen prompt: SEMUA prompt diambil dari Langfuse (label `production`).
 
 Tidak ada teks prompt di kode. Kalau prompt belum ada di Langfuse, langkah itu
-dihentikan dengan pesan yang jelas dan tercatat di console log. Teks prompt untuk
-ditempel di UI Langfuse ada di README_prompt.md - dokumen itu bukan sumber runtime.
+dihentikan dengan pesan yang jelas dan tercatat di console log. Salinan teks prompt
+untuk dokumentasi ada di folder prompts_reference/ - itu bukan sumber runtime.
 """
 
 from . import config

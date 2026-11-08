@@ -1,4 +1,11 @@
-"""Tool yang dieksekusi oleh agent."""
+"""Tiga tool yang dipakai agent. Semuanya mengembalikan JSON (string).
+
+| Tool                  | Dipakai agent | Sumber data                     |
+|-----------------------|---------------|---------------------------------|
+| search_movies         | retrieve      | Qdrant -> SQLite -> reranker    |
+| find_movies_by_title  | lookup        | SQLite (cocok judul)            |
+| movie_stats           | analytics     | LLM menulis SQL -> SQLite       |
+"""
 
 import json
 import re
@@ -6,14 +13,16 @@ import sqlite3
 
 from langchain_core.tools import tool
 
-from . import config, data, prompts, vectorstore
+from . import config, database, prompts, titles, vectorstore
+
+SQL_MAX_ROWS = 50  # batas baris hasil SQL
+FORBIDDEN_SQL = ("insert", "update", "delete", "drop", "alter", "create", "attach", "pragma", "replace")
 
 
 def _is_safe_select(sql: str) -> bool:
-    """Cek sederhana sebelum SQL dari LLM dijalankan."""
+    """Lapis pengaman kedua (lapis pertama: database dibuka read-only): hanya SELECT."""
     lowered = sql.lower().strip()
-    forbidden = ("insert", "update", "delete", "drop", "alter", "create", "attach", "pragma", "replace")
-    return lowered.startswith("select") and not any(word in lowered for word in forbidden)
+    return lowered.startswith("select") and not any(word in lowered for word in FORBIDDEN_SQL)
 
 
 @tool
@@ -22,23 +31,26 @@ def search_movies(query: str) -> str:
 
     Memakai pencarian semantik di vector database lalu diurutkan ulang dengan
     reranker. Isi `query` dengan deskripsi, misal "film perang yang menyedihkan".
+
+    Hasil: JSON `{"movies": [...], "ranked_by": "reranker" | "urutan-vektor"}`.
     """
-    return data.to_json(vectorstore.search(query, top_n=5))
+    movies, ranked_by = vectorstore.search(query, top_n=5)
+    return json.dumps({"movies": movies, "ranked_by": ranked_by}, ensure_ascii=False, default=str)
 
 
 @tool
-def find_movies_by_title(titles: str) -> str:
+def find_movies_by_title(titles_text: str) -> str:
     """Ambil detail film dari daftar JUDUL (bukan deskripsi).
 
     Pakai tool ini kalau user minta menampilkan/membuka film yang sudah disebut
-    sebelumnya, atau menyebut judul film secara langsung. Isi `titles` dengan satu
-    judul per baris. Salah ketik kecil ditoleransi ("Discable Me" -> "Despicable Me").
+    sebelumnya, atau menyebut judul film secara langsung. Isi `titles_text` dengan
+    satu judul per baris. Salah ketik kecil ditoleransi ("Discable Me" -> "Despicable Me").
 
-    Hasilnya JSON `{"found": [film...], "not_found": [judul yang tidak ada di database]}`,
+    Hasil: JSON `{"found": [film...], "not_found": [judul yang tidak ada di database]}`,
     jadi "film X tidak ada" hanya boleh disimpulkan dari `not_found`.
     """
-    daftar = [t.strip() for t in titles.replace(";", "\n").split("\n") if t.strip()]
-    found, not_found = data.match_titles(daftar)
+    names = [t.strip() for t in titles_text.replace(";", "\n").split("\n") if t.strip()]
+    found, not_found = titles.match_titles(names)
     return json.dumps({"found": found, "not_found": not_found}, ensure_ascii=False, default=str)
 
 
@@ -48,10 +60,12 @@ def movie_stats(question: str) -> str:
 
     Contoh: "rata-rata rating film genre drama", "5 sutradara dengan film terbanyak",
     "film tahun 1990-an dengan pendapatan tertinggi".
+
+    Hasil: JSON `{"sql": ..., "rows": [...]}`, atau pesan teks kalau SQL tidak aman / kosong.
     """
-    sql_prompt = prompts.get(config.PROMPT_SQL, question=question, schema=data.schema_text())
+    sql_prompt = prompts.get(config.PROMPT_SQL, question=question, schema=database.schema_text())
     raw = config.llm().invoke(sql_prompt).content.strip()
-    sql = re.sub(r"^```(?:sql)?|```$", "", raw, flags=re.IGNORECASE).strip()
+    sql = re.sub(r"^```(?:sql)?|```$", "", raw, flags=re.IGNORECASE).strip()  # buang pagar ```sql
     if not _is_safe_select(sql):
         return "Pertanyaan ini tidak bisa dijawab dengan query yang aman ke database."
     with sqlite3.connect(config.DB_URI, uri=True) as conn:
@@ -59,4 +73,4 @@ def movie_stats(question: str) -> str:
         rows = [dict(row) for row in conn.execute(sql)]
     if not rows:
         return f"Query tidak mengembalikan baris. SQL: {sql}"
-    return json.dumps({"sql": sql, "rows": rows[:50]}, ensure_ascii=False, default=str)
+    return json.dumps({"sql": sql, "rows": rows[:SQL_MAX_ROWS]}, ensure_ascii=False, default=str)
