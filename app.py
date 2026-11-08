@@ -279,7 +279,7 @@ def age_panel() -> None:
                        f"{database.visible_count(None)} film.")
         with st.expander("Aturan batas usia"):
             st.markdown(age_rules.rules_markdown())
-            st.caption("Umur diisi sendiri dan tidak diverifikasi: ini filter kenyamanan, bukan pengamanan.")
+            st.caption("filter usia.")
 
 
 def main() -> None:
