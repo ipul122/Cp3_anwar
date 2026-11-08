@@ -1,10 +1,3 @@
-"""Streamlit app: console log (kiri) - chatbot (tengah) - card rekomendasi (kanan).
-
-Console log menampilkan siapa yang dipanggil (agent/tool) beserta token dan biaya
-supaya alur agent terpantau. User memberi rating dari card rekomendasi; rekomendasi
-berikutnya dihitung dari rating itu memakai kedekatan PCA.
-"""
-
 import sys
 import uuid
 from pathlib import Path
@@ -24,10 +17,10 @@ st.set_page_config(page_title="IMDb Movie Assistant", page_icon="🎬", layout="
 # bertambah - yang scroll hanya bagian dalam panelnya.
 K_RECO = 5  # jumlah card rekomendasi
 K_RANDOM = 3  # jumlah card acak
-LOG_HEIGHT = 520
-CHAT_HEIGHT = 520
-CARDS_HEIGHT = 500
-RANDOM_HEIGHT = 300
+LOG_HEIGHT = 1000
+CHAT_HEIGHT = 570
+CARDS_HEIGHT = 700
+RANDOM_HEIGHT = 500
 PCA_HEIGHT = 400
 RATED_HEIGHT = 150
 
@@ -56,8 +49,8 @@ def log_color(entry) -> str:
 
 ASSETS_DIR = Path(__file__).resolve().parent / "data"
 BANNERS = {
-    "jailbreak": ASSETS_DIR / "jailbreak.jpg",  # muncul kalau user mencoba jailbreak
-    "limit": ASSETS_DIR / "limit_token.jpg",  # muncul kalau biaya sesi sudah lewat LIMIT_USD
+    "jailbreak": ASSETS_DIR / "jailbreak.jpg",
+    "limit": ASSETS_DIR / "limit_token.jpg",  
 }
 
 

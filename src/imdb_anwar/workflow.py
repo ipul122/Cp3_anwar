@@ -18,7 +18,6 @@ from . import config, data, prompts, tools, vectorstore
 
 MAX_STEPS = 6
 MAX_CARDS = 10  # batas film yang dikirim ke UI dari hasil tool (jangan sampai card kebanjiran)
-LOOKUP_MIN = 5  # kalau cocok judul kurang dari ini, lookup dilengkapi hasil vector DB (Qdrant)
 
 # Guardrail: permintaan di luar topik film dan usaha mengubah instruksi ditolak
 # sebelum agent/tool dipanggil, jadi tidak ada token yang terbuang.
@@ -36,7 +35,7 @@ OFF_TOPIC_PATTERNS = (
     "terjemahkan", "translate", "soal matematika",
 )
 GUARD_REPLY = (
-    "Maaf, saya hanya membantu soal film IMDb: rekomendasi, statistik, dan penjelasan film. "
+    "Maaf, saya hanya membantu soal film IMDb"
     "Permintaan di luar itu tidak saya layani."
 )
 
@@ -53,7 +52,10 @@ class Decision(BaseModel):
     route: Literal["retrieve", "analytics", "recommend", "lookup", "answer"] = Field(
         description="retrieve=pencarian film dari deskripsi, analytics=statistik/SQL, "
         "recommend=rekomendasi dari rating user, lookup=ambil film dari JUDUL yang disebut "
-        "user/riwayat (mis. minta link atau menampilkan film), answer=jawab sekarang"
+        "user/riwayat (mis. minta link atau menampilkan film). WAJIB lookup setiap kali user "
+        "menyebut/menanyakan judul film tertentu atau apakah sebuah film ada di database "
+        "(walau ejaannya salah) - jangan jawab ada/tidak ada tanpa lookup. "
+        "answer=jawab sekarang"
     )
     query: str = Field(default="", description="Query pencarian atau pertanyaan statistik")
     reason: str = Field(default="", description="Alasan singkat pemilihan route")
@@ -216,29 +218,45 @@ def analytics(state: State) -> dict:
 
 
 def lookup(state: State) -> dict:
-    """Agent lookup: judul -> cocokkan judul di SQLite, lalu lengkapi lewat vector DB (Qdrant).
+    """Agent lookup: judul -> cocokkan judul di SQLite (tahan salah ketik).
 
-    Alurnya persis RAG: judul di-embed -> Qdrant mengembalikan id film -> SQLite
-    mengambil detailnya. Kecocokan judul persis tetap dipakai lebih dulu supaya
-    hasilnya tepat, dan Qdrant melengkapi kalau judulnya tidak persis / kurang.
+    - Judul yang cocok dikirim sebagai jawaban pasti. Film lain TIDAK ditambahkan,
+      supaya "film spiderman" tidak ikut menampilkan Avengers / Kick-Ass.
+    - Judul yang tidak ketemu dilaporkan eksplisit ke LLM ("sudah dicek, tidak ada"),
+      jadi klaim film tidak ada bersumber dari pengecekan, bukan tebakan.
+    - Hanya kalau SAMA SEKALI tidak ada judul yang cocok, dipakai pencarian semantik
+      (embedding -> Qdrant -> id -> SQLite) dan hasilnya diberi label "mirip, bukan
+      cocok judul".
     """
     titles = state["query"] or state["question"]
     log_event(state["trace"], "tool", agent="lookup-agent", name="find_movies_by_title",
               detail=titles[:120])
-    movies = json.loads(tools.find_movies_by_title.invoke({"titles": titles}))
+    hasil = json.loads(tools.find_movies_by_title.invoke({"titles": titles}))
+    movies, hilang = hasil["found"], hasil["not_found"]
     log_event(state["trace"], "tool_result", agent="lookup-agent", name="find_movies_by_title",
-              detail=f"{len(movies)} film (cocok judul)")
+              detail=f"{len(movies)} film cocok judul"
+                     + (f" · tidak ada: {', '.join(hilang)[:80]}" if hilang else ""))
 
-    if len(movies) < LOOKUP_MIN:  # belum cukup -> pakai pencarian semantik (embedding -> Qdrant)
+    context = list(state["context"])
+    if movies:
+        context.append("Film yang diminta, SUDAH DITEMUKAN di database (judulnya cocok dengan yang dicari, "
+                       "termasuk judul yang memuat kata itu; jawab sebagai film yang ada, jangan "
+                       f"bilang tidak ada): {data.for_llm(movies)}")
+    if hilang:
+        context.append("Sudah dicek ke database IMDb Top 1000: tidak ada judul yang cocok untuk "
+                       f"{', '.join(repr(h) for h in hilang)}.")
+
+    if not movies:  # tidak ada judul yang cocok -> pencarian semantik, diberi label jelas
         log_event(state["trace"], "tool", agent="lookup-agent", name="search_movies", detail=titles[:120])
-        tambahan = json.loads(tools.search_movies.invoke({"query": titles}))
+        movies = json.loads(tools.search_movies.invoke({"query": titles}))[:MAX_CARDS]
         log_event(state["trace"], "tool_result", agent="lookup-agent", name="search_movies",
-                  detail=f"{len(tambahan)} film (vector DB) · rerank: {vectorstore.last_rerank}")
-        sudah = {m["id"] for m in movies}
-        movies += [m for m in tambahan if m["id"] not in sudah]
+                  detail=f"{len(movies)} film (vector DB) · rerank: {vectorstore.last_rerank}")
+        if movies:
+            context.append("Film MIRIP secara semantik (BUKAN cocok judul, jangan disebut sebagai film "
+                           f"yang diminta; hanya boleh ditawarkan sebagai alternatif): {data.for_llm(movies)}")
 
     movies = movies[:MAX_CARDS]
-    hasil_state = {"context": state["context"] + [f"Detail film yang diminta: {data.for_llm(movies)}"]}
+    hasil_state = {"context": context}
     if movies:
         hasil_state["movies"] = movies
     return hasil_state
@@ -265,10 +283,16 @@ def recommend(state: State) -> dict:
 
 def answer(state: State) -> dict:
     """Susun jawaban akhir memakai prompt `imdb-answer-agent`."""
+    context = list(state["context"])
+    if not state["visited"] and not state["blocked"]:
+        # Tidak ada tool yang jalan: LLM dilarang mengklaim film ada/tidak ada di database.
+        context.append("Catatan sistem: pada giliran ini TIDAK ada pengecekan database. Jangan menyatakan "
+                       "film tertentu ada atau tidak ada di database IMDb Top 1000; jawab dari riwayat "
+                       "percakapan saja, atau minta user menyebut judulnya agar bisa dicek.")
     system = prompts.get(
         config.PROMPT_ANSWER,
         question=state["question"],
-        context="\n".join(state["context"]) or "(tidak ada data)",
+        context="\n".join(context) or "(tidak ada data)",
     )
     result = _call_llm(state["trace"], "answer", _messages(system, state["history"], state["question"]))
     log_event(state["trace"], "final", detail="jawaban dikirim ke user")

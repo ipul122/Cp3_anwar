@@ -32,10 +32,14 @@ def find_movies_by_title(titles: str) -> str:
 
     Pakai tool ini kalau user minta menampilkan/membuka film yang sudah disebut
     sebelumnya, atau menyebut judul film secara langsung. Isi `titles` dengan satu
-    judul per baris.
+    judul per baris. Salah ketik kecil ditoleransi ("Discable Me" -> "Despicable Me").
+
+    Hasilnya JSON `{"found": [film...], "not_found": [judul yang tidak ada di database]}`,
+    jadi "film X tidak ada" hanya boleh disimpulkan dari `not_found`.
     """
     daftar = [t.strip() for t in titles.replace(";", "\n").split("\n") if t.strip()]
-    return data.to_json(data.by_titles(daftar))
+    found, not_found = data.match_titles(daftar)
+    return json.dumps({"found": found, "not_found": not_found}, ensure_ascii=False, default=str)
 
 
 @tool

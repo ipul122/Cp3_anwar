@@ -20,13 +20,18 @@ Start -> Supervisor -> (Retrieve | Analytics | Recommend | Lookup) -> Supervisor
 - **Analytics** = tool `movie_stats`: LLM menyusun SQL (prompt `imdb-sql-agent`)
   lalu dijalankan read-only ke SQLite. Kalau hasilnya daftar film, filmnya ikut
   dikirim ke UI sebagai card.
-- **Lookup** = tool `find_movies_by_title` + vector DB. Alurnya RAG: judul di-embed ->
-  **Qdrant mengembalikan id film** -> SQLite mengambil detailnya. Kecocokan judul persis
-  dipakai lebih dulu (supaya tepat), lalu kalau hasilnya kurang dari `LOOKUP_MIN = 5`
-  node ini memanggil `search_movies` (Qdrant + reranker) untuk melengkapi. Pencocokan judul
-  **tahan beda tanda baca & aksen**: "Spiderman" ketemu `spider-man: into the spider-verse`,
-  "Tokyo" ketemu `tôkyô goddofâzâzu`, `wall-e` = `wall·e`; "saw" tidak menarik "hacksaw ridge".
-  Console log menampilkan keduanya: `1 film (cocok judul)` + `5 film (vector DB) · rerank: reranker`.
+- **Lookup** = tool `find_movies_by_title`. Judul dicocokkan di SQLite dan hasilnya dikembalikan
+  sebagai `{"found": [...], "not_found": [...]}`. Film yang cocok judul dikirim apa adanya
+  (tidak ditambal film lain, jadi "film spiderman" tidak memunculkan Avengers/Kick-Ass), dan
+  judul yang tidak ketemu dilaporkan eksplisit ke LLM sebagai "sudah dicek, tidak ada". Hanya
+  kalau **tidak ada satu pun judul yang cocok**, node ini memanggil `search_movies` (embedding ->
+  Qdrant -> id -> SQLite + reranker) dan hasilnya diberi label "MIRIP, bukan cocok judul".
+  Pencocokan judul **tahan beda tanda baca, aksen, dan salah ketik**: "Spiderman" ketemu
+  `spider-man: into the spider-verse`, "Tokyo" ketemu `tôkyô goddofâzâzu`, "Discable Me" ketemu
+  `despicable me` (fuzzy, `FUZZY_CUTOFF = 0.8`, hanya untuk judul >= 5 huruf); "saw" tidak
+  menarik "hacksaw ridge". Console log: `1 film cocok judul · tidak ada: minions`.
+- **Pengaman anti-halusinasi**: kalau supervisor menjawab tanpa tool apa pun, `answer` diberi
+  catatan sistem agar tidak menyatakan film ada/tidak ada di database.
 - **Recommend** = rekomendasi berbasis PCA dari rating user.
 - **Answer** memakai prompt `imdb-answer-agent` (jawaban hanya dari konteks RAG).
 

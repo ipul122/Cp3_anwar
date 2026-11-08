@@ -1,5 +1,3 @@
-"""Konfigurasi global: environment, database, dan client pihak ketiga."""
-
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -14,7 +12,7 @@ load_dotenv()
 
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "data" / "database.db"
-DB_URI = f"file:{DB_PATH.as_posix()}?mode=ro"  # selalu read-only, aman di filesystem read-only
+DB_URI = f"file:{DB_PATH.as_posix()}?mode=ro" 
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -24,11 +22,8 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
 RERANK_MODEL = os.getenv("Rerank_MODEL") or os.getenv("RERANK_MODEL", "mongodb/rerank-2.5")
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "imdb_movies")
 
-# Batas biaya (USD) per sesi Streamlit. Kalau tercapai, chatbot berhenti dulu
-# sampai halaman di-refresh (sesi baru). Bisa diubah lewat env.
 LIMIT_USD = float(os.getenv("LIMIT_USD", "0.001"))
 
-# Nama prompt di Langfuse (semuanya bisa ditimpa lewat env).
 PROMPT_LABEL = os.getenv("LANGFUSE_PROMPT_LABEL", "production")
 PROMPT_SUPERVISOR = os.getenv("LANGFUSE_PROMPT_SUPERVISOR", "imdb-supervisor")
 PROMPT_SQL = os.getenv("LANGFUSE_PROMPT_SQL", "imdb-sql-agent")

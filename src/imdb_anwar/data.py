@@ -1,5 +1,6 @@
 """Akses tabel `imdb_movies` di SQLite."""
 
+import difflib
 import json
 import re
 import sqlite3
@@ -159,17 +160,27 @@ def _title_index() -> list[tuple[int, str, str]]:
     return index
 
 
-def by_titles(titles: list[str]) -> list[dict]:
-    """Cari film dari daftar judul - tahan beda tanda baca, aksen, dan spasi.
+FUZZY_CUTOFF = 0.8  # kemiripan minimal (0-1) untuk judul yang salah ketik
+FUZZY_MIN_CHARS = 5  # judul lebih pendek dari ini tidak di-fuzzy, terlalu mudah salah cocok
+
+
+def match_titles(titles: list[str]) -> tuple[list[dict], list[str]]:
+    """Cari film dari daftar judul. Mengembalikan (film ditemukan, judul yang TIDAK ketemu).
+
+    Tahan beda tanda baca, aksen, spasi, dan salah ketik:
 
     - Tahun di judul dibuang: "Tumbbad (2018)" -> "Tumbbad".
     - "Spiderman" tetap ketemu "spider-man: into the spider-verse" (tanda baca diabaikan).
     - "Tokyo" tetap ketemu "tôkyô goddofâzâzu" (aksen diabaikan).
     - Kecocokan persis diutamakan; potongan judul hanya untuk kata >= 4 huruf, supaya
       judul pendek seperti "up"/"saw" tidak menarik film lain yang kebetulan mirip.
+    - Kalau semua cara di atas gagal, dicoba kemiripan teks (salah ketik):
+      "Discable Me" -> "Despicable Me".
     """
     index = _title_index()
+    by_norm = {norm: movie_id for movie_id, norm, _ in index}
     ditemukan: list[int] = []
+    tidak_ketemu: list[str] = []
     for title in titles:
         needle = _normalize(_clean_title(title))
         if len(needle) < 2:
@@ -180,10 +191,20 @@ def by_titles(titles: list[str]) -> list[dict]:
         if not cocok and len(padat) >= 4:
             cocok = [movie_id for movie_id, norm, compact in index
                      if needle in norm or padat in compact][:5]
+        if not cocok and len(padat) >= FUZZY_MIN_CHARS:
+            mirip = difflib.get_close_matches(needle, list(by_norm), n=2, cutoff=FUZZY_CUTOFF)
+            cocok = [by_norm[norm] for norm in mirip]
+        if not cocok:
+            tidak_ketemu.append(title.strip())
         for movie_id in cocok:
             if movie_id not in ditemukan:
                 ditemukan.append(movie_id)
-    return by_ids(ditemukan)
+    return by_ids(ditemukan), tidak_ketemu
+
+
+def by_titles(titles: list[str]) -> list[dict]:
+    """Seperti `match_titles`, tapi hanya mengembalikan film yang ketemu."""
+    return match_titles(titles)[0]
 
 
 def for_llm(movies: list[dict]) -> str:
