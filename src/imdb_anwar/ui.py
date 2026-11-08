@@ -135,10 +135,10 @@ def _ring(center: tuple[float, float], radius: float, label: str, steps: int = 9
 
 
 def pca_scatter(ratings: dict, center, radius, recommendations: list[dict], random_cards: list[dict],
-                height: int) -> None:
-    """Sebaran 1000 film di peta PCA. Kalau `center` ada, tambahkan titik selera,
+                height: int, age: int | None = None) -> None:
+    """Sebaran film yang boleh untuk `age` di peta PCA. Kalau `center` ada, tambahkan titik selera,
     rekomendasi, kartu acak, dan lingkaran jangkauan."""
-    frame = pd.DataFrame(pca.points())
+    frame = pd.DataFrame(pca.points(age))
     frame["group"] = "semua film"
     frame.loc[frame["id"].isin(ratings), "group"] = "film yang kamu rating"
 

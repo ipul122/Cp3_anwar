@@ -8,11 +8,11 @@ import json
 import sqlite3
 from urllib.parse import quote_plus
 
-from . import config
+from . import age_rules, config
 
 # Kolom yang dipakai aplikasi, dengan alias yang ramah dibaca.
 FIELDS = (
-    "id, Series_Title, Released_Year_numeric AS year, Genre AS genre, "
+    "id, Series_Title, Certificate AS certificate, Released_Year_numeric AS year, Genre AS genre, "
     "Director AS director, IMDB_Rating AS rating, Overview AS overview, "
     "Runtime_minutes AS runtime, Meta_score AS meta_score, Poster_Link, PC1, PC2"
 )
@@ -41,14 +41,32 @@ def by_ids(ids) -> list[dict]:
     return [by_id[i] for i in ids if i in by_id]
 
 
-def random_movies(limit: int = 3, exclude=()) -> list[dict]:
-    """Film acak (rekomendasi awal & card acak), boleh membuang film yang sudah dirating."""
-    sql = f"SELECT {FIELDS} FROM imdb_movies"
+def random_movies(limit: int = 3, exclude=(), age: int | None = None) -> list[dict]:
+    """Film acak yang boleh untuk `age` (rekomendasi awal & card acak); `exclude` = id yang dilewati."""
+    conditions = [age_rules.sql_condition(age)]
     params = list(exclude)
     if params:
-        sql += f" WHERE id NOT IN ({','.join('?' * len(params))})"
-    sql += " ORDER BY RANDOM() LIMIT ?"
+        conditions.append(f"id NOT IN ({','.join('?' * len(params))})")
+    sql = f"SELECT {FIELDS} FROM imdb_movies WHERE {' AND '.join(conditions)} ORDER BY RANDOM() LIMIT ?"
     return query(sql, params + [limit])
+
+
+def visible_count(age: int | None) -> int:
+    """Jumlah film yang boleh dilihat user berumur `age`."""
+    sql = f"SELECT COUNT(*) AS n FROM imdb_movies WHERE {age_rules.sql_condition(age)}"
+    return query(sql)[0]["n"]
+
+
+def run_select(sql: str, age: int | None = None) -> list[dict]:
+    """Jalankan SELECT buatan LLM. Dengan `age`, tabel `imdb_movies` yang terlihat oleh SQL
+    hanyalah film yang boleh untuk umur itu (lewat view sementara bernama sama; SQLite
+    mencari objek TEMP lebih dulu daripada tabel asli)."""
+    with sqlite3.connect(config.DB_URI, uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        if age is not None:
+            conn.execute("CREATE TEMP VIEW imdb_movies AS SELECT * FROM main.imdb_movies "
+                         f"WHERE {age_rules.sql_condition(age)}")
+        return [dict(row) for row in conn.execute(sql)]
 
 
 def schema_text() -> str:

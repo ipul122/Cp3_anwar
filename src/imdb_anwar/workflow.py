@@ -16,7 +16,7 @@ from langfuse import propagate_attributes
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
-from . import config, database, guardrail, pca, prompts, tools, tracing
+from . import age_rules, config, database, guardrail, pca, prompts, tools, tracing
 from .tracing import call_llm, log_event
 
 MAX_CARDS = 10  # maksimal film yang dikirim ke UI sebagai kartu
@@ -31,6 +31,7 @@ class State(TypedDict):
     question: str  # pertanyaan user
     history: list  # riwayat chat [{"role", "content"}]
     ratings: dict  # {id_film: nilai 1-10}
+    age: int | None  # umur user dari input di UI; menentukan film yang boleh tampil (age_rules.py)
     context: list  # bahan jawaban (teks) yang dikumpulkan agent
     route: str  # keputusan supervisor: node berikutnya
     query: str  # pencarian/judul yang diminta supervisor untuk agent
@@ -98,7 +99,7 @@ def retrieve(state: State) -> dict:
     """Cari film dari DESKRIPSI (tool search_movies: Qdrant + reranker)."""
     query = state["query"] or state["question"]
     log_event(state["trace"], "tool", agent="retrieve-agent", name="search_movies", detail=query)
-    result = json.loads(tools.search_movies.invoke({"query": query}))
+    result = json.loads(tools.search_movies.invoke({"query": query, "age": state["age"]}))
     movies = result["movies"]
     log_event(state["trace"], "tool_result", agent="retrieve-agent", name="search_movies",
               detail=f"{len(movies)} film · urutan: {result['ranked_by']}")
@@ -110,19 +111,26 @@ def analytics(state: State) -> dict:
     """Jawab pertanyaan angka/statistik (tool movie_stats: LLM menulis SQL)."""
     question = state["query"] or state["question"]
     log_event(state["trace"], "tool", agent="analytics-agent", name="movie_stats", detail=question)
-    raw = tools.movie_stats.invoke({"question": question})
+    raw = tools.movie_stats.invoke({"question": question, "age": state["age"]})
     log_event(state["trace"], "tool_result", agent="analytics-agent", name="movie_stats", detail=raw[:120])
+
+    notes = []
+    if age_rules.hides_some_movies(state["age"]):  # statistik dihitung atas film yang boleh saja
+        notes.append(f"Catatan: statistik ini hanya atas film yang boleh untuk umur {state['age']}. Kalau ada "
+                     "kategori/film yang tidak muncul, jelaskan bahwa itu karena batas usia, jangan bilang "
+                     "tidak ada di database.")
 
     try:  # hasil sukses = JSON {"sql", "rows"}; selain itu berupa pesan teks
         payload = json.loads(raw)
         rows = payload["rows"]
     except (ValueError, TypeError, KeyError):
-        return {"context": state["context"] + [f"Hasil statistik: {raw[:600]}"]}
+        return {"context": state["context"] + [f"Hasil statistik: {raw[:600]}"] + notes}
 
     summary = {"sql": payload.get("sql", ""), "rows": rows[:SQL_ROWS_FOR_LLM]}
     if len(rows) > SQL_ROWS_FOR_LLM:
         summary["catatan"] = f"ditampilkan {SQL_ROWS_FOR_LLM} dari {len(rows)} baris"
-    update = {"context": state["context"] + [f"Hasil statistik: {json.dumps(summary, ensure_ascii=False, default=str)}"]}
+    stats = f"Hasil statistik: {json.dumps(summary, ensure_ascii=False, default=str)}"
+    update = {"context": state["context"] + [stats] + notes}
 
     # Kalau hasil SQL berisi kolom `id`, filmnya ikut tampil sebagai kartu di UI.
     ids = [row["id"] for row in rows if isinstance(row.get("id"), int)]
@@ -143,10 +151,11 @@ def lookup(state: State) -> dict:
     """
     titles_text = state["query"] or state["question"]
     log_event(state["trace"], "tool", agent="lookup-agent", name="find_movies_by_title", detail=titles_text[:120])
-    result = json.loads(tools.find_movies_by_title.invoke({"titles_text": titles_text}))
-    movies, not_found = result["found"], result["not_found"]
+    result = json.loads(tools.find_movies_by_title.invoke({"titles_text": titles_text, "age": state["age"]}))
+    movies, restricted, not_found = result["found"], result["restricted"], result["not_found"]
     log_event(state["trace"], "tool_result", agent="lookup-agent", name="find_movies_by_title",
               detail=f"{len(movies)} film cocok judul"
+                     + (f" · dibatasi usia: {len(restricted)}" if restricted else "")
                      + (f" · tidak ada: {', '.join(not_found)[:80]}" if not_found else ""))
 
     context = list(state["context"])
@@ -154,13 +163,18 @@ def lookup(state: State) -> dict:
         context.append("Film yang diminta, SUDAH DITEMUKAN di database (judulnya cocok dengan yang dicari, "
                        "termasuk judul yang memuat kata itu; jawab sebagai film yang ada, jangan "
                        f"bilang tidak ada): {database.for_llm(movies)}")
+    if restricted:  # film ADA, tapi tidak boleh ditampilkan: jangan dibilang "tidak ada"
+        names = ", ".join(f"'{r['title']}' (minimal {r['min_age']}+)" for r in restricted)
+        context.append(f"Film berikut ADA di database tetapi dibatasi usia dan TIDAK boleh ditampilkan untuk "
+                       f"user berumur {state['age']} tahun: {names}. Katakan terus terang bahwa filmnya ada "
+                       "tetapi tidak sesuai batas usia; jangan menyebut sinopsis atau detailnya.")
     if not_found:
         context.append("Sudah dicek ke database IMDb Top 1000: tidak ada judul yang cocok untuk "
                        f"{', '.join(repr(t) for t in not_found)}.")
 
     if not movies:  # tidak ada judul yang cocok -> pencarian semantik, diberi label jelas
         log_event(state["trace"], "tool", agent="lookup-agent", name="search_movies", detail=titles_text[:120])
-        search = json.loads(tools.search_movies.invoke({"query": titles_text}))
+        search = json.loads(tools.search_movies.invoke({"query": titles_text, "age": state["age"]}))
         movies = search["movies"]
         log_event(state["trace"], "tool_result", agent="lookup-agent", name="search_movies",
                   detail=f"{len(movies)} film (vector DB) · urutan: {search['ranked_by']}")
@@ -183,7 +197,7 @@ def recommend(state: State) -> dict:
         return {"context": state["context"] + ["Rekomendasi PCA: user belum memberi rating."]}
     log_event(state["trace"], "tool", agent="recommend-agent", name="pca_recommend",
               detail=f"PC1={center[0]:.2f}, PC2={center[1]:.2f} dari {len(state['ratings'])} rating")
-    movies = pca.pca_neighbors(center, k=RECOMMEND_K, exclude=state["ratings"])
+    movies = pca.pca_neighbors(center, k=RECOMMEND_K, exclude=state["ratings"], age=state["age"])
     lines = "; ".join(
         f"{m['Series_Title']} ({int(m['year']) if m['year'] else '?'}) [{m['genre']}] "
         f"rating {m['rating']}: {str(m['overview'])[:120]}"
@@ -242,6 +256,14 @@ GRAPH = _build_graph()
 
 # --- Titik masuk -------------------------------------------------------------
 
+def _age_note(age: int | None) -> str:
+    """Catatan umur untuk agent: berapa film yang boleh tampil dan bahwa hasilnya sudah disaring."""
+    if age is None:
+        return "Umur user tidak diketahui; tidak ada penyaringan umur."
+    return (f"User berumur {age} tahun. Semua hasil sudah disaring sesuai batas usia: hanya "
+            f"{database.visible_count(age)} dari {database.visible_count(None)} film yang boleh tampil.")
+
+
 def _rating_note(ratings: dict) -> str:
     """Catatan rating user untuk agent (SEMUA film yang dirating, urut dari yang paling lama)."""
     if not ratings:
@@ -257,14 +279,19 @@ def _rating_note(ratings: dict) -> str:
             "rekomendasi PCA; sisanya tetap catatan selera user.)")
 
 
-def run(question: str, history=None, ratings=None, trace=None) -> tuple[str, dict, dict]:
-    """Jalankan agent untuk satu pertanyaan. Mengembalikan (jawaban, state akhir, trace)."""
+def run(question: str, history=None, ratings=None, trace=None, age: int | None = None) -> tuple[str, dict, dict]:
+    """Jalankan agent untuk satu pertanyaan. Mengembalikan (jawaban, state akhir, trace).
+
+    `age` = umur user (dari input UI). Dengan `age`, hanya film yang boleh untuk umur itu yang
+    pernah dilihat agent; `age=None` berarti tanpa penyaringan (untuk skrip/tes).
+    """
     trace = trace if trace is not None else tracing.new_trace()
     state: State = {
         "question": question,
         "history": history or [],
         "ratings": ratings or {},
-        "context": [_rating_note(ratings or {})],
+        "age": age,
+        "context": [_rating_note(ratings or {}), _age_note(age)],
         "route": "",
         "query": "",
         "visited": [],

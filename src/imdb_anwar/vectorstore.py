@@ -5,7 +5,7 @@ Alur `search`:  teks -> embedding -> Qdrant (id film) -> SQLite (data film) -> r
 
 import httpx
 
-from . import config, database
+from . import age_rules, config, database
 
 
 def embed(text: str) -> list[float]:
@@ -43,9 +43,13 @@ def rerank(query: str, documents: list[str], top_n: int) -> tuple[list[int], str
         return list(range(min(top_n, len(documents)))), "urutan-vektor"
 
 
-def search(query: str, top_n: int = 5, candidates: int = 15) -> tuple[list[dict], str]:
-    """Film paling relevan untuk `query`. Mengembalikan (film, sumber urutan)."""
-    movies = database.by_ids(search_ids(query, candidates))
+def search(query: str, top_n: int = 5, candidates: int = 30, age: int | None = None) -> tuple[list[dict], str]:
+    """Film paling relevan untuk `query` yang boleh untuk umur `age`. Mengembalikan (film, sumber urutan).
+
+    Kandidat disaring umur SEBELUM reranker, dan jumlahnya diperbanyak (30) supaya
+    setelah disaring masih cukup untuk `top_n`.
+    """
+    movies = [m for m in database.by_ids(search_ids(query, candidates)) if age_rules.allowed(m, age)]
     documents = [
         f"{m['Series_Title']} ({int(m['year']) if m['year'] else '?'}) - {m['genre']}: {m['overview']}"
         for m in movies

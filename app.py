@@ -2,8 +2,10 @@
 
 Peta file ini:
   1. setting tampilan           4. panel (console, chat, kartu, PCA, daftar rating)
-  2. state sesi & rating        5. main(): susunan 5 panel
+  2. state sesi, umur & rating  5. main(): gerbang umur + susunan 5 panel
   3. bertanya ke agent
+
+Umur: user wajib mengisinya dulu di sidebar. Aturannya ada di src/imdb_anwar/age_rules.py.
 
 Komponen gambar (poster, kartu, grafik) ada di src/imdb_anwar/ui.py.
 Jalankan:  streamlit run app.py
@@ -18,7 +20,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from imdb_anwar import config, database, pca, tracing, ui, workflow  # noqa: E402
+from imdb_anwar import age_rules, config, database, pca, tracing, ui, workflow  # noqa: E402
 
 st.set_page_config(page_title="IMDb Movie Assistant", page_icon="🎬", layout="wide")
 
@@ -42,11 +44,28 @@ def setup() -> None:
     state.setdefault("titles", {})  # {id_film: judul}, untuk daftar rating
     state.setdefault("trace", tracing.new_trace(f"streamlit-{uuid.uuid4().hex[:8]}"))
     state.setdefault("chat", [])
-    state.setdefault("cards", database.random_movies(K_RECO))
+    state.setdefault("cards", [])  # diisi setelah umur diketahui (apply_age)
+    state.setdefault("random_cards", [])
     state.setdefault("card_source", "acak")
     state.setdefault("card_query", "")
-    if "random_cards" not in state:
-        refresh_random()
+
+
+def current_age() -> int | None:
+    """Umur yang diisi user di sidebar (None = belum diisi). Satu-satunya sumber umur."""
+    age = st.session_state.get("age_input")
+    return int(age) if age is not None else None
+
+
+def apply_age() -> None:
+    """Dipanggil saat umur berubah: kosongkan chat dan buang rating film yang kini dibatasi
+    (keduanya dikirim ke LLM sebagai konteks), lalu muat ulang kartu sesuai umur baru."""
+    st.session_state.chat = []
+    for movie in database.by_ids(list(st.session_state.ratings)):
+        if not age_rules.allowed(movie, current_age()):
+            st.session_state.ratings.pop(movie["id"], None)
+            st.session_state.titles.pop(movie["id"], None)
+    refresh_cards()
+    refresh_random()
 
 
 def limit_reached() -> bool:
@@ -62,17 +81,17 @@ def unrated(movies: list[dict]) -> list[dict]:
 def refresh_random() -> None:
     """Kartu acak untuk eksplorasi: belum dirating dan tidak kembar dengan kartu rekomendasi."""
     exclude = set(st.session_state.ratings) | {m["id"] for m in st.session_state.cards}
-    st.session_state.random_cards = database.random_movies(K_RANDOM, exclude=exclude)
+    st.session_state.random_cards = database.random_movies(K_RANDOM, exclude=exclude, age=current_age())
 
 
 def refresh_cards() -> None:
     """Kartu rekomendasi: acak kalau belum ada rating, tetangga PCA kalau sudah ada."""
     ratings = st.session_state.ratings
     if ratings:
-        st.session_state.cards = pca.pca_neighbors(pca.rating_center(ratings), k=K_RECO, exclude=ratings)
+        st.session_state.cards = pca.pca_neighbors(pca.rating_center(ratings), k=K_RECO, exclude=ratings, age=current_age())
         st.session_state.card_source = "pca"
     else:
-        st.session_state.cards = database.random_movies(K_RECO)
+        st.session_state.cards = database.random_movies(K_RECO, age=current_age())
         st.session_state.card_source = "acak"
     st.session_state.card_query = ""
 
@@ -96,7 +115,7 @@ def current_taste():
     if center is None:
         return None, None, []
     if st.session_state.card_source == "acak":
-        recommendations = pca.pca_neighbors(center, k=K_RECO, exclude=st.session_state.ratings)
+        recommendations = pca.pca_neighbors(center, k=K_RECO, exclude=st.session_state.ratings, age=current_age())
     else:
         recommendations = st.session_state.cards
     radius = max(math.hypot(m["PC1"] - center[0], m["PC2"] - center[1]) for m in recommendations)
@@ -107,12 +126,12 @@ def current_taste():
 
 def ask(question: str) -> None:
     """Kirim pertanyaan ke agent lalu simpan jawabannya (beserta film dan buktinya) di chat."""
-    if limit_reached():
+    if limit_reached() or current_age() is None:
         return
     first_log = len(st.session_state.trace["logs"])
     with st.spinner("Agent sedang memproses... (lihat flow-nya di console log)"):
-        answer, final_state, _ = workflow.run(question, st.session_state.chat,
-                                              st.session_state.ratings, st.session_state.trace)
+        answer, final_state, _ = workflow.run(question, st.session_state.chat, st.session_state.ratings,
+                                              st.session_state.trace, age=current_age())
     # Tool yang dipakai giliran ini -> label bukti di bawah jawaban.
     sources = sorted({e["name"] for e in st.session_state.trace["logs"][first_log:]
                       if e["event"] == "tool" and e.get("name")})
@@ -217,7 +236,8 @@ def pca_panel() -> None:
     center, radius, recommendations = current_taste()
     st.subheader("Visualisasi PCA")
     st.caption("Hover pada titik untuk melihat judul filmnya.")
-    ui.pca_scatter(ratings, center, radius, recommendations, unrated(st.session_state.random_cards), PCA_HEIGHT)
+    ui.pca_scatter(ratings, center, radius, recommendations, unrated(st.session_state.random_cards), PCA_HEIGHT,
+                   age=current_age())
     if center:
         st.caption(f"titik selera kamu: PC1={center[0]:.2f}, PC2={center[1]:.2f} · "
                    f"jangkauan {len(recommendations)} rekomendasi = {radius:.3f} · "
@@ -244,10 +264,31 @@ def rated_panel() -> None:
         st.rerun()
 
 
-# --- 5. Susunan halaman -----------------------------------------------------------
+# --- 5. Gerbang umur + susunan halaman ----------------------------------------------
+
+def age_panel() -> None:
+    """Sidebar: input umur, jumlah film yang boleh tampil, dan tabel aturannya."""
+    with st.sidebar:
+        st.subheader("Umur kamu")
+        st.number_input("Isi umur (3-100)", min_value=age_rules.MIN_USER_AGE, max_value=age_rules.MAX_USER_AGE,
+                        value=None, step=1, key="age_input", on_change=apply_age,
+                        help="Menentukan film yang boleh tampil. Mengganti umur mengosongkan riwayat chat.")
+        age = current_age()
+        if age is not None:
+            st.caption(f"Katalog untuk umur {age}: **{database.visible_count(age)}** dari "
+                       f"{database.visible_count(None)} film.")
+        with st.expander("Aturan batas usia"):
+            st.markdown(age_rules.rules_markdown())
+            st.caption("Umur diisi sendiri dan tidak diverifikasi: ini filter kenyamanan, bukan pengamanan.")
+
 
 def main() -> None:
     setup()
+    age_panel()
+    if current_age() is None:  # gerbang: tanpa umur, tidak ada film yang ditampilkan
+        st.title("🎬 IMDb Movie Assistant")
+        st.info("Isi **umur kamu** di sidebar kiri dulu. Umur dipakai untuk menyaring film sesuai batas usia.")
+        return
     left, middle, right = st.columns([1, 2.2, 1.2], gap="large")
     with left:
         console_panel()

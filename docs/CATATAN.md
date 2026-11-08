@@ -78,18 +78,42 @@ Contoh nyata (suka: The Dark Knight, LOTR: Return of the King, Inception = 10; b
 - Batas data: pertanyaan pendapatan hanya mencakup film yang punya `Gross_cleaned` (contoh: dari 29 film rilis
   2019-2021, hanya 16 yang punya datanya); prompt meminta agent menyebut cakupan ini.
 
-## 4. Batas biaya
+## 4. Batas usia: detail teknis
+
+Aturan pemetaan ada di [age_rules.py](../src/imdb_anwar/age_rules.py); tabelnya di README. Cara penegakannya:
+
+| Jalur | Mekanisme |
+|---|---|
+| Kartu acak, tetangga PCA, titik grafik PCA | `AND <age_rules.sql_condition(age)>` di query SQL |
+| `search_movies` (Qdrant) | Hasil disaring dengan `age_rules.allowed()` sebelum reranker; kandidat 30 (bukan 15) supaya sisanya cukup |
+| `find_movies_by_title` | Dipisah jadi `found` / `restricted` (hanya judul + umur minimal, tanpa sinopsis) / `not_found` |
+| `movie_stats` (SQL buatan LLM) | `database.run_select` membuat `TEMP VIEW imdb_movies` yang sudah tersaring; SQLite mencari objek TEMP lebih dulu daripada tabel asli |
+
+Catatan keamanan:
+
+- Pengujian menemukan celah: SQL yang menulis `main.imdb_movies` (atau `"main"."imdb_movies"`, `[main] . imdb_movies`)
+  menembus view. `tools._is_safe_select` kini menolak sebutan schema `main`/`temp` (regex `\b(main|temp)\W*\.`);
+  ada tesnya di `tests/test_basics.py`.
+- Nilai kondisi SQL ditulis langsung (bukan parameter) karena VIEW SQLite tidak menerima parameter. Aman karena
+  seluruh isinya dari konstanta `age_rules.MIN_AGE` dan `age` dipaksa jadi `int`.
+- Statistik (`analytics`) dihitung atas film yang boleh saja, sehingga angkanya bisa berbeda dari katalog penuh;
+  LLM diberi catatan agar menjelaskannya sebagai batas usia.
+- Hasil jawaban bisa berisi film non-dewasa yang kurang relevan kalau permintaannya "dewasa" (mis. horor berdarah
+  untuk umur 10): pencarian semantik hanya mengembalikan yang boleh, dan LLM menyatakannya terus terang.
+- Umur diisi sendiri, tidak diverifikasi. Ini keterbatasan desain, bukan bug.
+
+## 5. Batas biaya
 
 `LIMIT_USD` (bawaan `0.001`) adalah batas per sesi Streamlit. Setelah terlewati: banner `assets/limit_token.jpg`
 muncul, kotak chat dimatikan, dan `ask()` berhenti sebelum memanggil agent. Rating tetap bisa diberikan karena
 tidak memakai token. **Refresh halaman = sesi baru**, biaya mulai dari 0 lagi.
 
-## 5. Observability (Langfuse)
+## 6. Observability (Langfuse)
 
 Setiap percakapan dikirim ke Langfuse (SDK v5, OpenTelemetry) dengan `session_id`, tag, span per node, dan
 `generation` per panggilan LLM (model, token, biaya). Prompt yang dipakai ikut tercatat.
 
-## 6. Catatan model dan reranker
+## 7. Catatan model dan reranker
 
 - Reranker (`RERANK_MODEL`, bawaan `qwen/qwen3-reranker-8b`) dipanggil lewat endpoint `/api/v1/rerank` OpenRouter.
   Kalau gagal (rate limit `429`, atau provider diblokir karena akun dibatasi "ZDR only" di Settings → Privacy),
@@ -99,7 +123,7 @@ Setiap percakapan dikirim ke Langfuse (SDK v5, OpenTelemetry) dengan `session_id
 - `LLM_MODEL` dipakai untuk chatting dan panggilan terstruktur. `inclusionai/ling-3.1-flash` sempat menggantung /
   `429`, jadi bawaannya `google/gemini-2.5-flash`.
 
-## 7. Poster film
+## 8. Poster film
 
 - Diambil dari kolom `Poster_Link`, resolusinya dinaikkan ke `._V1_SX300.jpg` (link asli cuma 67px).
 - Saat ingest awal, kolom teks termasuk URL sempat di-lowercase sehingga Amazon membalas `400`. Kolom itu sudah
@@ -107,7 +131,7 @@ Setiap percakapan dikirim ke Langfuse (SDK v5, OpenTelemetry) dengan `session_id
 - Sekitar 1 dari 6 URL di dataset memang sudah mati di sisi Amazon, jadi poster dicek sekali per URL
   (`@st.cache_data`) dan diganti tulisan "poster tidak tersedia" bila gagal.
 
-## 8. Data dan notebook
+## 9. Data dan notebook
 
 - `data/ingest.ipynb`: membuat embedding dan mengisi Qdrant + SQLite. `pca/pca_model.ipynb`: membuat kolom `PC1`/`PC2`.
   Keduanya adalah catatan proses; hasilnya sudah ada di `data/database.db`, jadi aplikasi tidak membutuhkan notebook

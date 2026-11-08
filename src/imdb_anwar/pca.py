@@ -10,7 +10,7 @@ di antara A dan B (lebih dekat ke A). Film yang dirating 1 mendorong titik itu
 menjauh dari dirinya.
 """
 
-from . import database
+from . import age_rules, database
 
 PUSH_AWAY = 0.5  # seberapa kuat film yang tidak disukai mendorong titik selera
 RECENT_RATINGS = 7  # hanya rating terbaru sebanyak ini yang dipakai (selera lama tergantikan)
@@ -66,11 +66,13 @@ def rating_center(ratings: dict) -> tuple[float, float] | None:
     return center[0], center[1]
 
 
-def pca_neighbors(center: tuple[float, float], k: int = 3, exclude=()) -> list[dict]:
-    """`k` film terdekat dari `center` (jarak euclidean), tanpa film di `exclude`."""
+def pca_neighbors(center: tuple[float, float], k: int = 3, exclude=(), age: int | None = None) -> list[dict]:
+    """`k` film terdekat dari `center` (jarak euclidean), tanpa film di `exclude`,
+    dan hanya film yang boleh untuk umur `age`."""
     pc1, pc2 = center
     sql = (
         f"SELECT {database.FIELDS} FROM imdb_movies WHERE PC1 IS NOT NULL AND PC2 IS NOT NULL "
+        f"AND {age_rules.sql_condition(age)} "
         "ORDER BY (PC1 - ?) * (PC1 - ?) + (PC2 - ?) * (PC2 - ?) ASC LIMIT ?"
     )
     # Ambil lebih banyak dari yang diminta supaya film yang sudah dirating bisa dibuang.
@@ -79,9 +81,10 @@ def pca_neighbors(center: tuple[float, float], k: int = 3, exclude=()) -> list[d
     return [r for r in rows if r["id"] not in skip][:k]
 
 
-def points() -> list[dict]:
-    """Semua titik (PC1, PC2) untuk grafik sebaran film."""
+def points(age: int | None = None) -> list[dict]:
+    """Titik (PC1, PC2) film yang boleh untuk `age`, untuk grafik sebaran
+    (judul di tooltip tidak boleh membocorkan film yang dibatasi)."""
     return database.query(
         "SELECT id, Series_Title, IMDB_Rating AS rating, PC1, PC2 "
-        "FROM imdb_movies WHERE PC1 IS NOT NULL"
+        f"FROM imdb_movies WHERE PC1 IS NOT NULL AND {age_rules.sql_condition(age)}"
     )

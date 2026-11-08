@@ -12,7 +12,7 @@ import re
 import unicodedata
 from functools import lru_cache
 
-from . import database
+from . import age_rules, database
 
 FUZZY_CUTOFF = 0.8  # kemiripan minimal (0-1) untuk judul yang salah ketik
 FUZZY_MIN_CHARS = 5  # judul lebih pendek tidak di-fuzzy: terlalu mudah salah cocok
@@ -66,8 +66,12 @@ def _find_ids(needle: str) -> list[int]:
     return []
 
 
-def match_titles(titles: list[str]) -> tuple[list[dict], list[str]]:
-    """Cari film dari daftar judul. Mengembalikan (film yang ketemu, judul yang TIDAK ketemu)."""
+def match_titles(titles: list[str], age: int | None = None) -> tuple[list[dict], list[dict], list[str]]:
+    """Cari film dari daftar judul. Mengembalikan (film boleh tampil, film dibatasi usia, judul tidak ketemu).
+
+    Film dibatasi hanya berisi judul dan umur minimalnya: {"title": ..., "min_age": 18}.
+    Detail film (sinopsis, dll.) sengaja tidak ikut, supaya tidak bocor ke user maupun LLM.
+    """
     found_ids: list[int] = []
     not_found: list[str] = []
     for title in titles:
@@ -78,4 +82,9 @@ def match_titles(titles: list[str]) -> tuple[list[dict], list[str]]:
         if not ids:
             not_found.append(title.strip())
         found_ids += [i for i in ids if i not in found_ids]
-    return database.by_ids(found_ids), not_found
+
+    movies = database.by_ids(found_ids)
+    shown = [m for m in movies if age_rules.allowed(m, age)]
+    restricted = [{"title": m["Series_Title"], "min_age": age_rules.min_age(m["certificate"])}
+                  for m in movies if not age_rules.allowed(m, age)]
+    return shown, restricted, not_found
