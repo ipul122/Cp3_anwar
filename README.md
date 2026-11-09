@@ -13,7 +13,8 @@ rating yang mereka berikan. Antarmuka dibuat dengan Streamlit.
 - Filter batas usia berdasarkan sertifikat film.
 - Guardrail terhadap permintaan di luar topik film dan percobaan mengubah instruksi.
 - Pemantauan token dan biaya per sesi, serta batas biaya per sesi.
-- Pelacakan setiap panggilan LLM dan setiap langkah agent di Langfuse.
+- Pelacakan di Langfuse untuk setiap giliran chat: supervisor, agent, tool, embedding, Qdrant, reranker, dan LLM,
+  lengkap dengan token, biaya, dan versi prompt yang dipakai.
 
 ## Arsitektur
 
@@ -57,8 +58,8 @@ Diagram graph hasil render LangGraph tersedia di [graph_output/workflow.png](gra
 Perincian setiap tool:
 
 - **`search_movies`**: teks pertanyaan diubah menjadi embedding, 30 kandidat dicari di Qdrant (payload hanya berisi
-  `sqlite_id`), data film diambil dari SQLite, disaring umur, lalu 5 teratas dipilih oleh reranker. Jika reranker
-  gagal, urutan dari Qdrant dipakai dan sumber urutan dicatat di log.
+  `sqlite_id`), data film diambil dari SQLite dan disaring umur. Maksimal 15 teratas dikirim ke reranker, yang
+  memilih 5 film. Jika reranker gagal, urutan dari Qdrant dipakai dan sumber urutan dicatat di log.
 - **`find_movies_by_title`**: mengembalikan tiga daftar: film yang cocok, film yang ada tetapi dibatasi usia
   (hanya judul dan umur minimal), dan judul yang tidak ditemukan. Pencocokan dilakukan bertahap: cocok persis,
   potongan judul, lalu kemiripan teks (`difflib`, ambang 0,8) untuk salah ketik. Tanda baca, aksen, dan tahun
@@ -118,8 +119,39 @@ Umur diisi sendiri dan tidak diverifikasi.
 | Permintaan di luar topik atau mengubah instruksi | Dua lapis: kata kunci di `guardrail.py` (tanpa LLM) dan penandaan `blocked` oleh supervisor |
 | SQL berbahaya dari LLM | Prompt hanya mengizinkan `SELECT`, `_is_safe_select` menolak kata kunci perubah data, dan database dibuka read-only |
 | Klaim film "tidak ada" tanpa pengecekan | `lookup` melaporkan judul yang tidak ditemukan; bila tidak ada tool yang berjalan, `answer` diberi catatan agar tidak menyatakan film ada atau tidak ada |
-| Biaya LLM tidak terkendali | `LIMIT_USD` per sesi (bawaan 0,001 USD). Setelah terlampaui, input chat dinonaktifkan sampai halaman dimuat ulang |
+| Biaya tidak terkendali | `LIMIT_USD` per sesi (bawaan 0,001 USD) yang menjumlahkan biaya LLM, embedding, dan reranker. Setelah terlampaui, input chat dinonaktifkan sampai halaman dimuat ulang |
 | Provider LLM gagal atau lambat | Satu kali pengulangan otomatis; jika tetap gagal, pesan kesalahan ditampilkan dan aplikasi tetap berjalan |
+
+## Pelacakan di Langfuse
+
+Setiap pertanyaan menjadi satu trace bernama `imdb-agent` (dikelompokkan per sesi). Isinya berupa pohon observasi:
+
+```
+chat-turn                          chain        input: pertanyaan, umur; output: jawaban, agent yang dipakai
+|- supervisor                      generation   LLM, tertaut ke prompt imdb-supervisor
+|- retrieve-agent                  agent
+|   `- search_movies               tool
+|       |- embedding               embedding    biaya embedding
+|       |- qdrant-search           retriever    id film dan skor kemiripan
+|       `- rerank                  span         urutan hasil, sumber urutan
+|- analytics-agent                 agent
+|   `- movie_stats                 tool
+|       |- sql                     generation   LLM penulis SQL, tertaut ke prompt imdb-sql-agent
+|       `- sqlite-query            span         SQL yang dijalankan, jumlah baris
+|- lookup-agent                    agent
+|   `- find_movies_by_title        tool         film ditemukan, dibatasi usia, tidak ditemukan
+|- recommend-agent                 agent
+|- supervisor                      generation   (dipanggil lagi setelah tiap agent)
+`- answer                          generation   LLM, tertaut ke prompt imdb-answer-agent
+```
+
+- Observasi `generation` mencatat model, token, biaya, dan versi prompt, sehingga kolom "Number of Observations"
+  pada halaman Prompts di Langfuse terisi.
+- Biaya embedding, reranker, dan LLM penulis SQL ikut dijumlahkan ke total sesi. Angka biaya di console log dan
+  batas `LIMIT_USD` mencakup semuanya.
+- Biaya reranker dicatat di metadata observasi `rerank` dan di total sesi, tetapi tidak tampil sebagai kolom biaya
+  di Langfuse karena observasinya bertipe `span`.
+- Pertanyaan yang ditolak guardrail kata kunci hanya menghasilkan observasi `guardrail` di bawah `chat-turn`.
 
 ## Antarmuka
 
@@ -221,8 +253,8 @@ Jika salah satu prompt tidak ditemukan, aplikasi menampilkan pesan yang menyebut
 python tests/test_basics.py
 ```
 
-Terdapat 18 tes yang berjalan offline (hanya memakai SQLite lokal, tanpa LLM maupun jaringan). Cakupannya:
-pencocokan judul, guardrail, validasi SQL, filter batas usia, dan perhitungan titik selera PCA.
+Terdapat 19 tes yang berjalan offline (hanya memakai SQLite lokal, tanpa LLM maupun jaringan). Cakupannya:
+pencocokan judul, guardrail, validasi SQL, filter batas usia, pencatatan biaya, dan perhitungan titik selera PCA.
 Alur end-to-end dengan LLM belum dicakup tes otomatis.
 
 ## Keterbatasan

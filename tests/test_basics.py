@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from imdb_anwar import age_rules, database, guardrail, pca, titles, tools  # noqa: E402
+from imdb_anwar import age_rules, database, guardrail, pca, titles, tools, tracing  # noqa: E402
 
 
 def names(movies):
@@ -103,6 +103,18 @@ def test_sql_cannot_bypass_the_age_view():
                 "SELECT * FROM [main] . imdb_movies",
                 "SELECT * FROM temp.imdb_movies"):
         assert not tools._is_safe_select(sql), sql
+
+
+# --- Pencatatan biaya (tracing.py) ---------------------------------------------------
+
+def test_embedding_and_rerank_costs_are_added_to_the_session_trace():
+    trace = tracing.new_trace("tes")
+    with tracing.use_trace(trace):
+        tracing.add_cost("rerank", 0.0005, 240)
+        tracing.add_cost("embedding", 0, 3)  # biaya 0 tidak dicatat
+    assert trace["cost"] == 0.0005 and [log["name"] for log in trace["logs"]] == ["rerank"]
+    tracing.add_cost("rerank", 1.0)  # di luar workflow.run(): diabaikan, tidak error
+    assert trace["cost"] == 0.0005
 
 
 # --- Rekomendasi PCA (pca.py) -------------------------------------------------------

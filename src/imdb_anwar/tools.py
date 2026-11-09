@@ -10,9 +10,10 @@
 import json
 import re
 
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from . import config, database, prompts, titles, vectorstore
+from . import config, database, prompts, titles, tracing, vectorstore
 
 SQL_MAX_ROWS = 50  # batas baris hasil SQL
 FORBIDDEN_SQL = ("insert", "update", "delete", "drop", "alter", "create", "attach", "pragma", "replace")
@@ -41,8 +42,10 @@ def search_movies(query: str, age: int | None = None) -> str:
 
     Hasil: JSON `{"movies": [...], "ranked_by": "reranker" | "urutan-vektor"}`.
     """
-    movies, ranked_by = vectorstore.search(query, top_n=5, age=age)
-    return json.dumps({"movies": movies, "ranked_by": ranked_by}, ensure_ascii=False, default=str)
+    with tracing.observe("search_movies", "tool", input={"query": query, "age": age}) as observation:
+        movies, ranked_by = vectorstore.search(query, top_n=5, age=age)
+        observation.update(output={"films": [m["Series_Title"] for m in movies], "ranked_by": ranked_by})
+        return json.dumps({"movies": movies, "ranked_by": ranked_by}, ensure_ascii=False, default=str)
 
 
 @tool
@@ -58,9 +61,12 @@ def find_movies_by_title(titles_text: str, age: int | None = None) -> str:
     disimpulkan dari `not_found`.
     """
     names = [t.strip() for t in titles_text.replace(";", "\n").split("\n") if t.strip()]
-    found, restricted, not_found = titles.match_titles(names, age)
-    return json.dumps({"found": found, "restricted": restricted, "not_found": not_found},
-                      ensure_ascii=False, default=str)
+    with tracing.observe("find_movies_by_title", "tool", input={"titles": names, "age": age}) as observation:
+        found, restricted, not_found = titles.match_titles(names, age)
+        observation.update(output={"found": [m["Series_Title"] for m in found],
+                                   "restricted": restricted, "not_found": not_found})
+        return json.dumps({"found": found, "restricted": restricted, "not_found": not_found},
+                          ensure_ascii=False, default=str)
 
 
 @tool
@@ -73,12 +79,19 @@ def movie_stats(question: str, age: int | None = None) -> str:
 
     Hasil: JSON `{"sql": ..., "rows": [...]}`, atau pesan teks kalau SQL tidak aman / kosong.
     """
-    sql_prompt = prompts.get(config.PROMPT_SQL, question=question, schema=database.schema_text())
-    raw = config.llm().invoke(sql_prompt).content.strip()
-    sql = re.sub(r"^```(?:sql)?|```$", "", raw, flags=re.IGNORECASE).strip()  # buang pagar ```sql
-    if not _is_safe_select(sql):
-        return "Pertanyaan ini tidak bisa dijawab dengan query yang aman ke database."
-    rows = database.run_select(sql, age)
-    if not rows:
-        return f"Query tidak mengembalikan baris. SQL: {sql}"
-    return json.dumps({"sql": sql, "rows": rows[:SQL_MAX_ROWS]}, ensure_ascii=False, default=str)
+    with tracing.observe("movie_stats", "tool", input={"question": question, "age": age}) as observation:
+        # LLM penulis SQL ikut dihitung token dan biayanya di trace sesi (generation "sql").
+        sql_prompt, prompt = prompts.load(config.PROMPT_SQL, question=question, schema=database.schema_text())
+        reply = tracing.call_llm(tracing.current_trace() or tracing.new_trace(), "sql",
+                                 [HumanMessage(sql_prompt)], prompt=prompt)
+        sql = re.sub(r"^```(?:sql)?|```$", "", reply.content.strip(), flags=re.IGNORECASE).strip()  # buang pagar ```sql
+        if not _is_safe_select(sql):
+            observation.update(output="ditolak: SQL tidak aman", level="WARNING")
+            return "Pertanyaan ini tidak bisa dijawab dengan query yang aman ke database."
+        with tracing.observe("sqlite-query", "span", input={"sql": sql, "age": age}) as query_span:
+            rows = database.run_select(sql, age)
+            query_span.update(output={"rows": len(rows)})
+        observation.update(output={"sql": sql, "rows": len(rows)})
+        if not rows:
+            return f"Query tidak mengembalikan baris. SQL: {sql}"
+        return json.dumps({"sql": sql, "rows": rows[:SQL_MAX_ROWS]}, ensure_ascii=False, default=str)

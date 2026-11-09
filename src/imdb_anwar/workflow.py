@@ -17,7 +17,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 from . import age_rules, config, database, guardrail, pca, prompts, tools, tracing
-from .tracing import call_llm, log_event
+from .tracing import call_llm, log_event, traced_agent
 
 MAX_CARDS = 10  # maksimal film yang dikirim ke UI sebagai kartu
 SQL_ROWS_FOR_LLM = 10  # baris hasil SQL yang dikirim ke LLM (hemat token)
@@ -67,14 +67,15 @@ class Decision(BaseModel):
 def supervisor(state: State) -> dict:
     """Pilih langkah berikutnya."""
     history = "\n".join(f"{m['role']}: {m['content']}" for m in state["history"][-HISTORY_FOR_SUPERVISOR:])
-    system = prompts.get(
+    system, prompt = prompts.load(
         config.PROMPT_SUPERVISOR,
         question=state["question"],
         history=history or "(kosong)",
         context="\n".join(state["context"]) or "(belum ada)",
     )
     messages = tracing.build_messages(system, [], state["question"])
-    decision = call_llm(state["trace"], "supervisor", messages, Decision)["parsed"] or Decision(route="answer")
+    result = call_llm(state["trace"], "supervisor", messages, Decision, prompt=prompt)
+    decision = result["parsed"] or Decision(route="answer")
 
     # Guardrail lapis 2: LLM menilai permintaan di luar topik -> langsung jawab dengan penolakan.
     if decision.blocked:
@@ -95,6 +96,7 @@ def supervisor(state: State) -> dict:
 # --- Agent -------------------------------------------------------------------
 # Pola yang sama di semua agent: catat log -> panggil tool -> tambah ke context.
 
+@traced_agent("retrieve-agent")
 def retrieve(state: State) -> dict:
     """Cari film dari DESKRIPSI (tool search_movies: Qdrant + reranker)."""
     query = state["query"] or state["question"]
@@ -107,6 +109,7 @@ def retrieve(state: State) -> dict:
             "movies": movies}
 
 
+@traced_agent("analytics-agent")
 def analytics(state: State) -> dict:
     """Jawab pertanyaan angka/statistik (tool movie_stats: LLM menulis SQL)."""
     question = state["query"] or state["question"]
@@ -140,6 +143,7 @@ def analytics(state: State) -> dict:
     return update
 
 
+@traced_agent("lookup-agent")
 def lookup(state: State) -> dict:
     """Ambil film dari JUDUL yang disebut user (tool find_movies_by_title).
 
@@ -188,6 +192,7 @@ def lookup(state: State) -> dict:
     return update
 
 
+@traced_agent("recommend-agent")
 def recommend(state: State) -> dict:
     """Rekomendasi dari rating user: titik selera PCA -> film terdekat (lihat pca.py)."""
     center = pca.rating_center(state["ratings"])
@@ -217,13 +222,13 @@ def answer(state: State) -> dict:
         context.append("Catatan sistem: pada giliran ini TIDAK ada pengecekan database. Jangan menyatakan "
                        "film tertentu ada atau tidak ada di database IMDb Top 1000; jawab dari riwayat "
                        "percakapan saja, atau minta user menyebut judulnya agar bisa dicek.")
-    system = prompts.get(
+    system, prompt = prompts.load(
         config.PROMPT_ANSWER,
         question=state["question"],
         context="\n".join(context) or "(tidak ada data)",
     )
     messages = tracing.build_messages(system, state["history"], state["question"])
-    result = call_llm(state["trace"], "answer", messages)
+    result = call_llm(state["trace"], "answer", messages, prompt=prompt)
     log_event(state["trace"], "final", detail="jawaban dikirim ke user")
     return {"answer": result.content}
 
@@ -302,18 +307,23 @@ def run(question: str, history=None, ratings=None, trace=None, age: int | None =
     }
     log_event(trace, "user", detail=question)
     try:
-        with propagate_attributes(session_id=trace["session_id"], trace_name="imdb-agent",
-                                  tags=["imdb", "capstone"]):
+        # use_trace: tool yang dipanggil tanpa membawa trace tetap mencatat token dan biaya ke sesi ini.
+        # chat-turn: observasi root, jadi input/output satu giliran terlihat di Langfuse.
+        with tracing.use_trace(trace), \
+             propagate_attributes(session_id=trace["session_id"], trace_name="imdb-agent",
+                                  tags=["imdb", "capstone"], metadata={"age": str(age)}), \
+             tracing.observe("chat-turn", "chain", input={"question": question, "age": age,
+                                                          "ratings": len(state["ratings"])}) as turn:
             pattern = guardrail.check(question)  # guardrail lapis 1: tanpa LLM, tanpa token
             if pattern:
-                with config.langfuse().start_as_current_observation(
-                    name="guardrail", as_type="guardrail", input=question, output=guardrail.REPLY
-                ):
+                with tracing.observe("guardrail", "guardrail", input=question, output=guardrail.REPLY):
                     log_event(trace, "warn", agent="guardrail", detail=f"pola '{pattern}' ditolak")
                 log_event(trace, "final", agent="guardrail", detail="dijawab tanpa agent/tool")
                 final = {**state, "answer": guardrail.REPLY, "blocked": pattern}
             else:
                 final = GRAPH.invoke(state)
+            turn.update(output={"answer": final["answer"][:tracing.OUTPUT_CHARS], "agents": final["visited"],
+                                "blocked": final["blocked"], "films": len(final["movies"])})
     except prompts.PromptMissing as error:
         log_event(trace, "error", agent="langfuse", detail=str(error)[:200])
         final = {**state, "answer": f"Prompt '{error.name}' belum ada di Langfuse (label {config.PROMPT_LABEL})."}

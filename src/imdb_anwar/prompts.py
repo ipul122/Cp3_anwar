@@ -1,8 +1,7 @@
 """Manajemen prompt: SEMUA prompt diambil dari Langfuse (label `production`).
 
 Tidak ada teks prompt di kode. Kalau prompt belum ada di Langfuse, langkah itu
-dihentikan dengan pesan yang jelas dan tercatat di console log. Salinan teks prompt
-untuk dokumentasi ada di folder prompts_reference/ - itu bukan sumber runtime.
+dihentikan dengan pesan yang jelas dan tercatat di console log.
 """
 
 from . import config
@@ -23,8 +22,12 @@ def _fill(template: str, variables: dict) -> str:
     return template
 
 
-def get(name: str, **variables) -> str:
-    """Ambil prompt dari Langfuse lalu isi variabelnya."""
+def load(name: str, **variables) -> tuple[str, object]:
+    """Ambil prompt dari Langfuse. Mengembalikan (teks yang sudah terisi, objek prompt Langfuse).
+
+    Objek prompt diteruskan ke `tracing.call_llm(prompt=...)` supaya pemanggilan LLM
+    tertaut ke versi prompt yang dipakai (muncul di halaman Prompts di Langfuse).
+    """
     try:
         prompt = config.langfuse().get_prompt(name, label=config.PROMPT_LABEL)
         template = prompt.prompt
@@ -32,4 +35,4 @@ def get(name: str, **variables) -> str:
             template = "\n".join(m["content"] for m in prompt.compile(**variables))
     except Exception as error:
         raise PromptMissing(name, config.PROMPT_LABEL, error) from error
-    return _fill(template, variables)
+    return _fill(template, variables), prompt
