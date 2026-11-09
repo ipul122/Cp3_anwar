@@ -66,9 +66,8 @@ Perincian setiap tool:
   pada judul diabaikan.
 - **`movie_stats`**: LLM menulis satu query `SELECT` dari pertanyaan dan skema tabel. Query diperiksa
   (`_is_safe_select`) lalu dijalankan pada koneksi read-only (maksimal 50 baris).
-- **Rekomendasi PCA**: titik selera dihitung dari 7 rating terbaru. Film dengan rating 6 ke atas menarik titik
-  selera (dibobot nilai rating), sedangkan rating 5 ke bawah mendorongnya menjauh. Film terdekat dari titik itu
-  (jarak euclidean pada PC1 dan PC2) menjadi rekomendasi.
+- **Rekomendasi PCA**: titik selera dihitung dari rating pengguna, lalu film terdekat dari titik itu
+  direkomendasikan. Perhitungan lengkapnya ada di bagian [Rekomendasi PCA](#rekomendasi-pca).
 
 ## Data
 
@@ -83,6 +82,99 @@ Perincian setiap tool:
 Data teks film hanya disimpan di SQLite. Qdrant dipakai untuk mencari id film yang maknanya paling dekat.
 Kedua notebook adalah catatan proses pembuatan data. Aplikasi tidak menjalankannya, tetapi koleksi Qdrant harus
 sudah terisi agar `retrieve` dan fallback `lookup` berfungsi.
+
+## Rekomendasi PCA
+
+Setiap film punya koordinat `PC1` dan `PC2` (PCA 2 komponen atas embedding film), sehingga film bisa digambarkan
+sebagai titik pada peta 2 dimensi. Film yang bertema mirip cenderung berdekatan. Rekomendasi dihitung dalam dua
+langkah di [src/imdb_anwar/pca.py](src/imdb_anwar/pca.py): menentukan satu titik selera dari rating pengguna
+(`rating_center`), lalu mengambil film yang paling dekat dengan titik itu (`pca_neighbors`).
+
+### Menghitung titik selera
+
+Hanya 7 rating terbaru yang dipakai (`RECENT_RATINGS`), sehingga selera lama tergantikan oleh rating baru.
+Rating dibagi dua kelompok menurut `LIKED_FROM = 6`.
+
+**1. Film yang disukai (rating 6 ke atas) menarik titik.** Bobot setiap film sama dengan nilai ratingnya.
+Titik tarikan adalah rata-rata posisi film-film itu, dibobot:
+
+```
+titik_tarikan = jumlah(rating × posisi) / jumlah(rating)
+```
+
+**2. Film yang tidak disukai (rating 5 ke bawah) mendorong titik menjauh.** Bobotnya terbalik: `6 - rating`,
+sehingga makin rendah rating makin besar bobotnya. Titik film yang tidak disukai dihitung dengan cara yang sama
+(rata-rata berbobot), lalu titik tarikan digeser menjauh darinya:
+
+```
+kekuatan_dorong = PUSH_AWAY × jumlah(6 - rating) / (jumlah_film × 5)        PUSH_AWAY = 0,5
+titik_selera    = titik_tarikan - kekuatan_dorong × (titik_tidak_disukai - titik_tarikan)
+```
+
+Kekuatan dorong adalah rata-rata kekuatan tiap film, sehingga nilainya paling besar 0,5 berapa pun jumlah film
+yang tidak disukai. Untuk satu film:
+
+| Rating film yang tidak disukai | 5 | 4 | 3 | 2 | 1 |
+|---|---|---|---|---|---|
+| Bobot (`6 - rating`) | 1 | 2 | 3 | 4 | 5 |
+| Kekuatan dorong | 0,1 | 0,2 | 0,3 | 0,4 | 0,5 |
+
+Jika tidak ada film yang disukai, titik awalnya adalah rata-rata seluruh katalog, lalu didorong dengan cara yang
+sama. Jika belum ada rating, titik selera tidak ada (`None`).
+
+### Contoh perhitungan
+
+| Film | Rating | PC1 | PC2 | Kelompok | Bobot |
+|---|---|---|---|---|---|
+| Spider-Man: Into the Spider-Verse | 10 | -0,281 | -0,188 | disukai | 10 |
+| Perfect Blue | 6 | -0,162 | 0,232 | disukai | 6 |
+| Shawshank Redemption | 2 | 0,103 | -0,080 | tidak disukai | 4 |
+| Mulan | 5 | -0,328 | -0,158 | tidak disukai | 1 |
+
+1. Titik tarikan: Spider-Verse berporsi 10/16 dan Perfect Blue 6/16, hasilnya (-0,236, -0,031).
+2. Titik tidak disukai: Shawshank berporsi 4/5 dan Mulan 1/5, hasilnya (0,017, -0,095).
+3. Kekuatan dorong: `0,5 × 5 / (2 × 5) = 0,25`.
+4. Titik selera: `(-0,236, -0,031) - 0,25 × ((0,017, -0,095) - (-0,236, -0,031))` = **(-0,299, -0,014)**.
+
+### Mengambil rekomendasi
+
+`pca_neighbors` mengurutkan film menurut jarak euclidean kuadrat ke titik selera pada `PC1` dan `PC2` (dihitung
+langsung di SQL), membuang film yang sudah dirating dan film yang dibatasi usia, lalu mengambil `k` teratas
+(5 untuk kartu dan untuk agent `recommend`).
+
+## Pencocokan judul
+
+Tool `find_movies_by_title` memakai [src/imdb_anwar/titles.py](src/imdb_anwar/titles.py). Setiap judul yang diketik
+dinormalisasi (huruf kecil, aksen dibuang, tanda baca menjadi spasi, tahun di dalam judul dibuang), lalu dicocokkan
+dengan 1000 judul di database lewat tiga percobaan berurutan. Percobaan berhenti pada yang pertama menghasilkan film.
+
+| # | Percobaan | Syarat | Contoh |
+|---|---|---|---|
+| 1 | Cocok persis, dengan atau tanpa spasi | - | `despicablem e` menemukan *despicable me* |
+| 2 | Potongan judul | 4 huruf ke atas, maksimal 5 film | `spiderman` menemukan *spider-man: into the spider-verse* |
+| 3 | Kemiripan teks (salah ketik) | 5 huruf ke atas, skor minimal 0,8, maksimal 2 film | `discable me` menemukan *despicable me* |
+
+Percobaan 3 memakai `difflib.SequenceMatcher`. Skornya berkisar 0 sampai 1:
+
+```
+skor = 2 × M / T
+```
+
+`M` adalah jumlah huruf yang sama (dalam blok berurutan) dan `T` adalah total huruf kedua teks. Contoh:
+`discable me` (11 huruf) dan `despicable me` (13 huruf) memiliki blok yang sama `d`, `i`, dan `cable me`
+sehingga `M = 10`, `T = 24`, dan skornya `20 / 24 = 0,83`. Judul lain di database hanya mencapai 0,57 ke bawah
+terhadap `discable me`.
+
+| Diketik | Kandidat terbaik | Skor | Diterima |
+|---|---|---|---|
+| `incepsion` | inception | 0,89 | ya |
+| `interstelar` | interstellar | 0,96 | ya |
+| `titanik` | titanic | 0,86 | ya |
+| `xyzabc` | zodiac | 0,50 | tidak |
+
+Penilaian ini hanya membandingkan huruf, bukan makna. Contohnya `the godfather part 3` menghasilkan dua film
+(*part ii* dengan skor 0,93 dan *part iii* dengan 0,90) karena "3" tidak dikenali sebagai "iii". Batas maksimal
+2 film menjaga agar daftar tebakan tetap pendek.
 
 ## Batas usia
 
