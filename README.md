@@ -4,6 +4,8 @@ Chatbot film berbasis multi-agent (LangGraph) dan Retrieval-Augmented Generation
 Pengguna dapat mencari film dari deskripsi atau judul, menanyakan statistik koleksi, dan mendapat rekomendasi dari
 rating yang mereka berikan. Antarmuka dibuat dengan Streamlit.
 
+STREAMLIT : https://capstone-anwar.streamlit.app/
+
 ## Fitur
 
 - Pencarian film dari deskripsi dengan pencarian semantik (Qdrant) dan reranker.
